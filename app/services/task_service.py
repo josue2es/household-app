@@ -15,10 +15,15 @@ from app.models import Task, TaskLog
 # --- Helpers ---
 
 def _today_bounds() -> tuple[datetime, datetime]:
-    """Return the start and end of today as datetimes (for date-range queries)."""
-    today = date.today()
-    start = datetime.combine(today, time.min)
-    end = datetime.combine(today, time.max)
+    """
+    Return the start and end of "today" in UTC, matching how completed_at is stored.
+
+    All timestamps are in UTC. We compute the UTC day window so that the
+    user's "today" lines up with the server's stored times.
+    """
+    now_utc = datetime.utcnow()
+    start = datetime.combine(now_utc.date(), time.min)
+    end = datetime.combine(now_utc.date(), time.max)
     return start, end
 
 
@@ -30,7 +35,7 @@ def is_task_due_today(task: Task, today: date | None = None) -> bool:
     Pure = no DB calls, no side effects — easy to test.
     """
     if today is None:
-        today = date.today()
+        today = datetime.utcnow().date()
 
     if not task.is_active:
         return False
@@ -57,6 +62,10 @@ def is_task_due_today(task: Task, today: date | None = None) -> bool:
         # List of weekdays, e.g. {"weekdays": [0, 2, 4]} for Mon/Wed/Fri.
         return today.weekday() in config.get("weekdays", [])
 
+    if ftype == "monthly":
+        # Specific day of the month, e.g. {"day": 15} for the 15th.
+        return today.day == config.get("day")
+        
     return False  # Unknown frequency type — fail safe.
 
 

@@ -4,7 +4,7 @@ Database models — Python classes that map to SQLite tables.
 Each class = one table. Each class attribute = one column.
 SQLAlchemy generates the SQL for us automatically.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, DateTime, Boolean, ForeignKey, JSON, Text
 )
