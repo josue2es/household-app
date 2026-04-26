@@ -1,0 +1,9 @@
+name,category,purchase_count
+Tortillas,Food,99
+Frijoles,Food,18
+Pupusa Mix,Food,12
+Detergent,House Maintenance,5
+Litter,Pet Supplies,7
+BadRow,FakeCategory,5
+,Food,3
+NegCount,Food,-1

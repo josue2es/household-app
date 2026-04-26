@@ -1,0 +1,11 @@
+name,description,frequency_type,frequency_value
+Pay electric bill,Monthly bill on the 5th,monthly,5
+Pay water bill,Monthly bill on the 15th,monthly,15
+Take out recycling,Tuesday and Friday,specific_days,"1,4"
+Vacuum house,Weekly Saturday chore,weekly,5
+Dentist appointment,Dr. Lopez visit,once,2026-08-20
+Meditate,Daily mindfulness,daily,
+BadType,Wrong type,not_a_freq,5
+BadWeek,Bad weekday,weekly,99
+BadMonth,Bad day,monthly,32
+BadOnce,Bad date,once,not-a-date
