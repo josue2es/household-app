@@ -225,4 +225,8 @@ docker compose up -d --build
 
 ---
 
+## 13. Added Admin CLI
+Run:
+docker compose exec household-app python -m app.admin
+
 *Last updated: as the project evolves. Add new commands as you learn them.*
