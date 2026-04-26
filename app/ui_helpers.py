@@ -47,8 +47,8 @@ def mobile_layout(title: str, active_tab: str = "tasks"):
     # --- Bottom navigation ---
     with ui.footer().classes("bg-white border-t border-gray-200 p-0"):
         with ui.row().classes("w-full justify-around items-center py-2"):
-            _nav_button("checklist", "Tasks", "/tasks", active_tab == "tasks")
-            _nav_button("shopping_cart", "Groceries", "/groceries", active_tab == "groceries")
+            _nav_button("checklist", "Tareas", "/tasks", active_tab == "tasks")
+            _nav_button("shopping_cart", "Compras", "/groceries", active_tab == "groceries")
 
 
 def _nav_button(icon: str, label: str, target: str, is_active: bool):

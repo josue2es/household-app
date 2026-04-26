@@ -12,21 +12,21 @@ from app.services.task_service import create_task
 
 
 WEEKDAYS = [
-    ("Monday", 0), ("Tuesday", 1), ("Wednesday", 2),
-    ("Thursday", 3), ("Friday", 4), ("Saturday", 5), ("Sunday", 6),
+    ("Lunes", 0), ("Martes", 1), ("Miércoles", 2),
+    ("Jueves", 3), ("Viernes", 4), ("Sábado", 5), ("Domingo", 6),
 ]
 
 FREQUENCY_OPTIONS = {
-    "once": "One-off (specific date)",
-    "daily": "Daily",
-    "weekly": "Weekly (one weekday)",
-    "specific_days": "Specific days of the week",
-    "monthly": "Monthly (specific day of month)",
+    "once": "Una sola vez (fecha específica)",
+    "daily": "Diario",
+    "weekly": "Semanal (un día de la semana)",
+    "specific_days": "Días específicos de la semana",
+    "monthly": "Mensual (día del mes)",
 }
 
 
 def render():
-    with mobile_layout("New Task", active_tab="tasks"):
+    with mobile_layout("Nueva tarea", active_tab="tasks"):
         # State holders for form values
         state = {
             "name": "",
@@ -40,15 +40,15 @@ def render():
         }
 
         with ui.card().classes("w-full p-4 gap-3"):
-            name_input = ui.input("Task name").classes("w-full").props("outlined")
+            name_input = ui.input("Nombre de la tarea").classes("w-full").props("outlined")
             name_input.bind_value(state, "name")
 
-            desc_input = ui.textarea("Description (optional)").classes("w-full").props(
+            desc_input = ui.textarea("Descripción (opcional)").classes("w-full").props(
                 "outlined autogrow"
             )
             desc_input.bind_value(state, "description")
 
-            ui.label("Frequency").classes("text-sm text-gray-500 mt-2")
+            ui.label("Frecuencia").classes("text-sm text-gray-500 mt-2")
             freq_select = (
                 ui.select(FREQUENCY_OPTIONS, value="daily")
                 .classes("w-full")
@@ -65,14 +65,14 @@ def render():
                 with dynamic_section:
                     if ftype == "once":
                         date_input = (
-                            ui.input("Date", value=state["once_date"])
+                            ui.input("Fecha", value=state["once_date"])
                             .classes("w-full")
                             .props("outlined type=date")
                         )
                         date_input.bind_value(state, "once_date")
 
                     elif ftype == "daily":
-                        ui.label("Will be added to today's list every day.").classes(
+                        ui.label("Se agregará a la lista todos los días.").classes(
                             "text-sm text-gray-500"
                         )
 
@@ -80,12 +80,12 @@ def render():
                         weekday_select = (
                             ui.select({i: name for name, i in WEEKDAYS}, value=0)
                             .classes("w-full")
-                            .props("outlined label='Day of week'")
+                            .props("outlined label='Día de la semana'")
                         )
                         weekday_select.bind_value(state, "weekly_day")
 
                     elif ftype == "specific_days":
-                        ui.label("Pick the days").classes("text-sm text-gray-500")
+                        ui.label("Elige los días").classes("text-sm text-gray-500")
                         with ui.row().classes("flex-wrap gap-2"):
                             for label, idx in WEEKDAYS:
                                 _day_chip(label, idx, state)
@@ -95,7 +95,7 @@ def render():
                             ui.select(
                                 {i: str(i) for i in range(1, 32)},
                                 value=1,
-                                label="Day of the month",
+                                label="Día del mes",
                             )
                             .classes("w-full")
                             .props("outlined")
@@ -106,10 +106,10 @@ def render():
             freq_select.on_value_change(lambda _: render_dynamic())
 
         with ui.row().classes("w-full gap-2 mt-2"):
-            ui.button("Cancel", on_click=lambda: ui.navigate.to("/tasks")).classes(
+            ui.button("Cancelar", on_click=lambda: ui.navigate.to("/tasks")).classes(
                 "flex-1"
             ).props("outline color=grey")
-            ui.button("Save", on_click=lambda: _save(state)).classes("flex-1").props(
+            ui.button("Guardar", on_click=lambda: _save(state)).classes("flex-1").props(
                 "color=primary"
             )
 
@@ -139,7 +139,7 @@ def _day_chip(label: str, idx: int, state: dict):
 def _save(state: dict):
     name = state["name"].strip()
     if not name:
-        show_error("Task name is required")
+        show_error("El nombre de la tarea es obligatorio")
         return
 
     ftype = state["frequency_type"]
@@ -151,7 +151,7 @@ def _save(state: dict):
         config = {"weekday": int(state["weekly_day"])}
     elif ftype == "specific_days":
         if not state["specific_days"]:
-            show_error("Pick at least one day")
+            show_error("Selecciona al menos un día")
             return
         config = {"weekdays": sorted(state["specific_days"])}
     elif ftype == "monthly":
@@ -165,5 +165,5 @@ def _save(state: dict):
             frequency_type=ftype,
             frequency_config=config,
         )
-    show_success(f"Task '{name}' created!")
+    show_success(f"¡Tarea '{name}' creada!")
     ui.navigate.to("/tasks")
