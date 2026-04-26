@@ -18,9 +18,17 @@ from app.services.grocery_service import (
 
 CATEGORIES = ["Food", "Groceries", "House Maintenance", "Pet Supplies", "Other"]
 
+CATEGORY_LABELS = {
+    "Food": "Comida",
+    "Groceries": "Abarrotes",
+    "House Maintenance": "Mantenimiento del hogar",
+    "Pet Supplies": "Mascotas",
+    "Other": "Otro",
+}
+
 
 def render():
-    with mobile_layout("Shopping List", active_tab="groceries"):
+    with mobile_layout("Lista de compras", active_tab="groceries"):
         container = ui.column().classes("w-full gap-3")
 
         def refresh():
@@ -46,14 +54,14 @@ def _render_smart_add(refresh_fn):
                 options=options,
                 with_input=True,
                 new_value_mode="add-unique",
-                label="Add item (type to search or create)",
+                label="Agregar artículo (escribe para buscar o crear)",
             )
             .classes("w-full")
             .props("outlined use-input fill-input hide-selected")
         )
 
         category_select = (
-            ui.select(CATEGORIES, value="Food", label="Category")
+            ui.select(CATEGORY_LABELS, value="Food", label="Categoría")
             .classes("w-full")
             .props("outlined")
         )
@@ -61,7 +69,7 @@ def _render_smart_add(refresh_fn):
         def add_item():
             value = item_select.value
             if not value:
-                show_error("Type or pick an item first")
+                show_error("Escribe o selecciona un artículo primero")
                 return
             user_id = auth.current_user_id()
             if user_id is None:
@@ -75,12 +83,12 @@ def _render_smart_add(refresh_fn):
                         user_id=user_id,
                         category=category_select.value,
                     )
-                show_success(f"Added '{value}'")
+                show_success(f"'{value}' agregado")
                 refresh_fn()
             except ValueError as e:
                 show_error(str(e))
 
-        ui.button("Add to list", icon="add", on_click=add_item).classes("w-full").props(
+        ui.button("Agregar a la lista", icon="add", on_click=add_item).classes("w-full").props(
             "color=primary"
         )
 
@@ -98,8 +106,8 @@ def _render_active_list(refresh_fn):
     if not active_data:
         with ui.card().classes("w-full p-6 items-center"):
             ui.icon("shopping_basket", size="48px").classes("text-gray-300 mb-2")
-            ui.label("Your list is empty").classes("text-gray-600")
-            ui.label("Add an item above to get started").classes("text-xs text-gray-400")
+            ui.label("Tu lista está vacía").classes("text-gray-600")
+            ui.label("Agrega un artículo arriba para comenzar").classes("text-xs text-gray-400")
         return
 
     # Group by category
@@ -108,7 +116,7 @@ def _render_active_list(refresh_fn):
         by_cat.setdefault(category, []).append((entry_id, name, added_by))
 
     for category in sorted(by_cat.keys()):
-        ui.label(category).classes(
+        ui.label(CATEGORY_LABELS.get(category, category)).classes(
             "text-sm font-semibold text-gray-500 uppercase tracking-wide mt-2"
         )
         for entry_id, name, added_by in by_cat[category]:
@@ -126,12 +134,12 @@ def _render_grocery_card(entry_id: int, name: str, added_by: str, refresh_fn):
 
                 with ui.column().classes("gap-0 flex-1"):
                     ui.label(name).classes("font-medium text-gray-800")
-                    ui.label(f"added by {added_by}").classes("text-xs text-gray-500")
+                    ui.label(f"agregado por {added_by}").classes("text-xs text-gray-500")
 
             with ui.button(icon="more_vert").props("flat round dense color=grey"):
                 with ui.menu():
                     ui.menu_item(
-                        "Remove (didn't buy)",
+                        "Eliminar (no comprado)",
                         on_click=lambda eid=entry_id: _on_removed(eid, refresh_fn),
                     ).props("dense")
 
@@ -139,12 +147,12 @@ def _render_grocery_card(entry_id: int, name: str, added_by: str, refresh_fn):
 def _on_purchased(entry_id: int, refresh_fn):
     with get_db() as db:
         mark_as_purchased(db, entry_id)
-    show_success("Marked as purchased!")
+    show_success("¡Marcado como comprado!")
     refresh_fn()
 
 
 def _on_removed(entry_id: int, refresh_fn):
     with get_db() as db:
         remove_from_active_list(db, entry_id)
-    show_success("Removed")
+    show_success("Eliminado")
     refresh_fn()

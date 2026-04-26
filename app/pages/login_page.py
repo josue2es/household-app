@@ -14,24 +14,24 @@ def render():
         # Branding
         with ui.column().classes("items-center w-full mb-4"):
             ui.icon("home", size="64px").classes("text-primary")
-            ui.label("Household").classes("text-2xl font-bold")
-            ui.label("Sign in to continue").classes("text-sm text-gray-500")
+            ui.label("Hogar").classes("text-2xl font-bold")
+            ui.label("Inicia sesión para continuar").classes("text-sm text-gray-500")
 
         with ui.card().classes("w-full p-6"):
             users = auth.list_users()
             if not users:
-                ui.label("No users found. Run `python -m app.seed` first.").classes("text-red-500")
+                ui.label("No se encontraron usuarios. Ejecuta `python -m app.seed` primero.").classes("text-red-500")
                 return
 
             user_options = {name: name for _, name, _ in users}
 
             username_select = (
-                ui.select(user_options, label="User", value=list(user_options.keys())[0])
+                ui.select(user_options, label="Usuario", value=list(user_options.keys())[0])
                 .classes("w-full")
                 .props("outlined")
             )
             password_input = (
-                ui.input(label="Password", password=True, password_toggle_button=True)
+                ui.input(label="Contraseña", password=True, password_toggle_button=True)
                 .classes("w-full")
                 .props("outlined")
             )
@@ -42,16 +42,16 @@ def render():
                     auth.login(user)
                     ui.navigate.to("/tasks")
                 else:
-                    show_error("Invalid username or password")
+                    show_error("Usuario o contraseña incorrectos")
                     password_input.value = ""
 
             # Pressing Enter in password field also logs in
             password_input.on("keydown.enter", attempt_login)
 
-            ui.button("Sign In", on_click=attempt_login).classes("w-full mt-2").props(
+            ui.button("Iniciar sesión", on_click=attempt_login).classes("w-full mt-2").props(
                 "size=lg color=primary"
             )
 
-        ui.label("Default passwords: alice123 / bob123").classes(
+        ui.label("Contraseñas por defecto: alice123 / bob123").classes(
             "text-xs text-gray-400 text-center mt-2"
         )
