@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Database (provided via volume mount)
+data/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Tests/scratch
+sanity_test.py
+check_logs.py
+
+# Environment
+.env
+*.env
+
+# OS
+Thumbs.db
+.DS_Store

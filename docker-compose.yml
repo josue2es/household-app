@@ -1,0 +1,11 @@
+services:
+  household-app:
+    build: .
+    container_name: household-app
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - STORAGE_SECRET=${STORAGE_SECRET:-dev-secret-change-me}
+    restart: unless-stopped
