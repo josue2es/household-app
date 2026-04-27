@@ -59,9 +59,11 @@ def main_menu() -> None:
             print("  [Update mode: CSV imports will overwrite existing items]")
         print()
         print("  1. Manage users")
-        print("  2. Import grocery items from CSV")
-        print("  3. Import tasks from CSV")
-        print("  4. Export current data to CSV")
+        print("  2. List all groceries")
+        print("  3. List all tasks")
+        print("  4. Import grocery items from CSV")
+        print("  5. Import tasks from CSV")
+        print("  6. Export current data to CSV")
         print("  0. Exit")
         print()
 
@@ -70,12 +72,18 @@ def main_menu() -> None:
         if choice == "1":
             users_menu()
         elif choice == "2":
-            import_groceries()
+            list_groceries()
             pause()
         elif choice == "3":
-            import_tasks()
+            list_tasks()
             pause()
         elif choice == "4":
+            import_groceries()
+            pause()
+        elif choice == "5":
+            import_tasks()
+            pause()
+        elif choice == "6":
             export_data()
             pause()
         elif choice == "0":
@@ -84,6 +92,81 @@ def main_menu() -> None:
         else:
             print(f"\nInvalid choice: '{choice}'")
             pause()
+
+# ============================================================
+# List views
+# ============================================================
+
+WEEKDAY_NAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+
+def _format_frequency(ftype: str, config: dict) -> str:
+    """Return a compact human-readable frequency string for table display."""
+    if ftype == "daily":
+        return "Diario"
+    if ftype == "once":
+        return f"Una vez ({config.get('date', '?')})"
+    if ftype == "weekly":
+        day = config.get("weekday", "?")
+        name = WEEKDAY_NAMES[day] if isinstance(day, int) and 0 <= day <= 6 else str(day)
+        return f"Semanal ({name})"
+    if ftype == "specific_days":
+        days = config.get("weekdays", [])
+        names = ", ".join(WEEKDAY_NAMES[d] for d in days if 0 <= d <= 6)
+        return f"Días específicos ({names})"
+    if ftype == "monthly":
+        return f"Mensual (día {config.get('day', '?')})"
+    return ftype
+
+
+def list_groceries() -> None:
+    """Print a table of all grocery items sorted by category then name."""
+    with get_db() as db:
+        items = (
+            db.query(GroceryItem)
+            .order_by(GroceryItem.category, GroceryItem.name)
+            .all()
+        )
+        rows = [(i.id, i.name, i.category, i.purchase_count) for i in items]
+
+    if not rows:
+        print("\n(No grocery items found)")
+        return
+
+    print()
+    print(f"  {'ID':<4} {'Nombre':<28} {'Categoría':<22} {'Compras':>7}")
+    print(f"  {'-'*4} {'-'*28} {'-'*22} {'-'*7}")
+    for iid, name, category, count in rows:
+        print(f"  {iid:<4} {name:<28} {category:<22} {count:>7}")
+    print(f"\n  {len(rows)} artículo(s) en total")
+
+
+def list_tasks() -> None:
+    """Print a table of all active tasks."""
+    with get_db() as db:
+        tasks = (
+            db.query(Task)
+            .filter(Task.is_active.is_(True))
+            .order_by(Task.name)
+            .all()
+        )
+        rows = [
+            (t.id, t.name, _format_frequency(t.frequency_type, t.frequency_config or {}), t.description or "")
+            for t in tasks
+        ]
+
+    if not rows:
+        print("\n(No tasks found)")
+        return
+
+    print()
+    print(f"  {'ID':<4} {'Nombre':<28} {'Frecuencia':<28} {'Descripción'}")
+    print(f"  {'-'*4} {'-'*28} {'-'*28} {'-'*24}")
+    for tid, name, freq, desc in rows:
+        short_desc = desc[:40] + "…" if len(desc) > 40 else desc
+        print(f"  {tid:<4} {name:<28} {freq:<28} {short_desc}")
+    print(f"\n  {len(rows)} tarea(s) en total")
+
 
 # ============================================================
 # Users submenu
