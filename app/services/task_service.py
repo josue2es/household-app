@@ -17,7 +17,7 @@ LOCAL_TZ = timezone(timedelta(hours=-6))
 
 # Frequency types that target a specific date/day vs. flexible "any day this period" types.
 SPECIFIC_DATE_TYPES = {"once", "daily", "weekly", "specific_days", "monthly"}
-FLEXIBLE_TYPES = {"weekly_any", "monthly_any", "bimonthly_any"}
+FLEXIBLE_TYPES = {"weekly_any", "monthly_any", "bimonthly_any", "every_x_days"}
 
 
 # --- Helpers ---
@@ -34,14 +34,16 @@ def _today_bounds() -> tuple[datetime, datetime]:
     return _local_date_to_utc_bounds(datetime.now(LOCAL_TZ).date())
 
 
-def _period_bounds(ftype: str, today: date) -> tuple[datetime, datetime]:
+def _period_bounds(ftype: str, today: date, config: dict | None = None) -> tuple[datetime, datetime]:
     """
     Return the UTC-naive completion window for a task based on its frequency type.
 
     Specific-date tasks only care about today; flexible tasks care about the
-    whole week, month, or two-month block so a single completion hides the
-    task for the rest of the period.
+    whole week, month, two-month block, or X-day rolling window so a single
+    completion hides the task for the rest of the period.
     """
+    config = config or {}
+
     if ftype in SPECIFIC_DATE_TYPES:
         return _local_date_to_utc_bounds(today)
 
@@ -54,7 +56,6 @@ def _period_bounds(ftype: str, today: date) -> tuple[datetime, datetime]:
 
     if ftype == "monthly_any":
         month_start = today.replace(day=1)
-        # Last day of the month
         if today.month == 12:
             month_end = date(today.year + 1, 1, 1) - timedelta(days=1)
         else:
@@ -74,6 +75,15 @@ def _period_bounds(ftype: str, today: date) -> tuple[datetime, datetime]:
             period_end = date(today.year, block_end_month + 1, 1) - timedelta(days=1)
         start, _ = _local_date_to_utc_bounds(period_start)
         _, end = _local_date_to_utc_bounds(period_end)
+        return start, end
+
+    if ftype == "every_x_days":
+        # Task is hidden for X days after the last completion.
+        # Window = [today - (X-1), today]: if any completion falls here, it's still done.
+        x = max(config.get("days", 1), 1)
+        period_start = today - timedelta(days=x - 1)
+        start, _ = _local_date_to_utc_bounds(period_start)
+        _, end = _local_date_to_utc_bounds(today)
         return start, end
 
     # Fallback: treat as today-only
@@ -136,7 +146,7 @@ def get_pending_tasks_today(db: Session) -> list[Task]:
     # For each task check completion against its own period (not just today).
     pending = []
     for task in due_today:
-        period_start, period_end = _period_bounds(task.frequency_type, today)
+        period_start, period_end = _period_bounds(task.frequency_type, today, task.frequency_config or {})
         already_done = db.query(TaskLog).filter(
             TaskLog.task_id == task.id,
             TaskLog.completed_at >= period_start,
@@ -150,15 +160,41 @@ def get_pending_tasks_today(db: Session) -> list[Task]:
     return pending
 
 
-def get_completed_tasks_today(db: Session) -> list[TaskLog]:
-    """Tasks already completed today — useful for the 'done' section of the UI."""
-    start, end = _today_bounds()
-    return (
-        db.query(TaskLog)
-        .filter(TaskLog.completed_at >= start, TaskLog.completed_at <= end)
-        .order_by(TaskLog.completed_at.desc())
-        .all()
-    )
+def get_completed_tasks_for_today(db: Session) -> list[tuple[Task, TaskLog]]:
+    """
+    Return (Task, most-recent TaskLog) for every task that is due today but
+    already completed within its own period. Ordered same as pending: specific
+    date tasks first, flexible tasks after.
+    """
+    today = datetime.now(LOCAL_TZ).date()
+    candidates = db.query(Task).filter(Task.is_active.is_(True)).all()
+    due_today = [t for t in candidates if is_task_due_today(t, today)]
+
+    result = []
+    for task in due_today:
+        period_start, period_end = _period_bounds(task.frequency_type, today, task.frequency_config or {})
+        log = (
+            db.query(TaskLog)
+            .filter(
+                TaskLog.task_id == task.id,
+                TaskLog.completed_at >= period_start,
+                TaskLog.completed_at <= period_end,
+            )
+            .order_by(TaskLog.completed_at.desc())
+            .first()
+        )
+        if log:
+            result.append((task, log))
+
+    result.sort(key=lambda pair: pair[0].frequency_type in FLEXIBLE_TYPES)
+    return result
+
+
+def undo_task_completion(db: Session, log_id: int) -> None:
+    """Delete a completion log entry, returning the task to the pending list."""
+    log = db.query(TaskLog).filter(TaskLog.id == log_id).first()
+    if log:
+        db.delete(log)
 
 
 def complete_task(db: Session, task_id: int, user_id: int) -> TaskLog:

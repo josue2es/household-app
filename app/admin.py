@@ -122,6 +122,8 @@ def _format_frequency(ftype: str, config: dict) -> str:
         return "Mensual (libre)"
     if ftype == "bimonthly_any":
         return "Bimestral (libre)"
+    if ftype == "every_x_days":
+        return f"Cada {config.get('days', '?')} días"
     return ftype
 
 
@@ -573,7 +575,7 @@ def _apply_grocery_rows(rows: list[dict]) -> dict:
 
 VALID_FREQUENCIES = {
     "once", "daily", "weekly", "specific_days", "monthly",
-    "weekly_any", "monthly_any", "bimonthly_any",
+    "weekly_any", "monthly_any", "bimonthly_any", "every_x_days",
 }
 
 
@@ -590,6 +592,7 @@ def import_tasks() -> None:
     print("  weekly_any     (leave empty) — once per week, any day")
     print("  monthly_any    (leave empty) — once per month, any day")
     print("  bimonthly_any  (leave empty) — once per two-month block, any day")
+    print("  every_x_days   number of days — reappears X days after last completion")
     print("\nExample row:  Sacar la basura,Martes y viernes,specific_days,\"1,4\"\n")
 
     path_str = prompt("Path to CSV file")
@@ -663,9 +666,9 @@ def _clean_task_row(raw: dict, line_num: int) -> dict | None:
 
     # Parse frequency_value into a JSON config dict, depending on type.
     config = _parse_frequency_value(ftype, fvalue, line_num)
-    flexible = {"daily", "weekly_any", "monthly_any", "bimonthly_any"}
-    if config is None and ftype not in flexible:
-        # Flexible types use an empty config — None means parse error for the others
+    no_value_types = {"daily", "weekly_any", "monthly_any", "bimonthly_any"}
+    if config is None and ftype not in no_value_types:
+        # Types with no value use an empty config — None means a parse error for the rest
         return None
 
     return {
@@ -687,6 +690,16 @@ def _parse_frequency_value(ftype: str, fvalue: str, line_num: int) -> dict | Non
     """
     if ftype in ("daily", "weekly_any", "monthly_any", "bimonthly_any"):
         return {}
+
+    if ftype == "every_x_days":
+        try:
+            days = int(fvalue)
+            if days < 1:
+                raise ValueError
+        except ValueError:
+            print(f"  Line {line_num}: skipped — every_x_days needs a positive integer, got '{fvalue}'")
+            return None
+        return {"days": days}
 
     if ftype == "weekly":
         try:
@@ -863,7 +876,7 @@ def _frequency_config_to_value(ftype: str, config: dict) -> str:
     Inverse of _parse_frequency_value: turn the JSON config back into the CSV value string.
     Matches the format the import expects so round-trip works.
     """
-    if ftype == "daily":
+    if ftype in ("daily", "weekly_any", "monthly_any", "bimonthly_any"):
         return ""
     if ftype == "weekly":
         return str(config.get("weekday", ""))
@@ -874,6 +887,8 @@ def _frequency_config_to_value(ftype: str, config: dict) -> str:
         return ",".join(str(d) for d in days)
     if ftype == "once":
         return config.get("date", "")
+    if ftype == "every_x_days":
+        return str(config.get("days", ""))
     return ""
 
 # ============================================================
