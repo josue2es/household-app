@@ -116,6 +116,12 @@ def _format_frequency(ftype: str, config: dict) -> str:
         return f"Días específicos ({names})"
     if ftype == "monthly":
         return f"Mensual (día {config.get('day', '?')})"
+    if ftype == "weekly_any":
+        return "Semanal (libre)"
+    if ftype == "monthly_any":
+        return "Mensual (libre)"
+    if ftype == "bimonthly_any":
+        return "Bimestral (libre)"
     return ftype
 
 
@@ -565,7 +571,10 @@ def _apply_grocery_rows(rows: list[dict]) -> dict:
 # Task CSV Import
 # ============================================================
 
-VALID_FREQUENCIES = {"once", "daily", "weekly", "specific_days", "monthly"}
+VALID_FREQUENCIES = {
+    "once", "daily", "weekly", "specific_days", "monthly",
+    "weekly_any", "monthly_any", "bimonthly_any",
+}
 
 
 def import_tasks() -> None:
@@ -578,7 +587,10 @@ def import_tasks() -> None:
     print("  monthly        day of month 1-31")
     print("  specific_days  comma-separated weekdays, e.g. 1,4")
     print("  once           date in YYYY-MM-DD format")
-    print("\nExample row:  Take out trash,Tuesday and Friday,specific_days,\"1,4\"\n")
+    print("  weekly_any     (leave empty) — once per week, any day")
+    print("  monthly_any    (leave empty) — once per month, any day")
+    print("  bimonthly_any  (leave empty) — once per two-month block, any day")
+    print("\nExample row:  Sacar la basura,Martes y viernes,specific_days,\"1,4\"\n")
 
     path_str = prompt("Path to CSV file")
     if not path_str:
@@ -651,8 +663,9 @@ def _clean_task_row(raw: dict, line_num: int) -> dict | None:
 
     # Parse frequency_value into a JSON config dict, depending on type.
     config = _parse_frequency_value(ftype, fvalue, line_num)
-    if config is None and ftype != "daily":
-        # daily uses an empty config — None means parse error for the others
+    flexible = {"daily", "weekly_any", "monthly_any", "bimonthly_any"}
+    if config is None and ftype not in flexible:
+        # Flexible types use an empty config — None means parse error for the others
         return None
 
     return {
@@ -672,7 +685,7 @@ def _parse_frequency_value(ftype: str, fvalue: str, line_num: int) -> dict | Non
         - {} if ftype is daily (no value needed)
         - None on parse error (caller treats this as "skip row")
     """
-    if ftype == "daily":
+    if ftype in ("daily", "weekly_any", "monthly_any", "bimonthly_any"):
         return {}
 
     if ftype == "weekly":

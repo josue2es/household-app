@@ -1,4 +1,5 @@
 """Tasks dashboard."""
+from datetime import timezone
 from nicegui import ui
 
 from app.services.task_service import LOCAL_TZ  # single definition, shared with service
@@ -9,6 +10,9 @@ FREQUENCY_LABELS = {
     "weekly": "Semanal",
     "specific_days": "Días específicos",
     "monthly": "Mensual",
+    "weekly_any": "Semanal (libre)",
+    "monthly_any": "Mensual (libre)",
+    "bimonthly_any": "Bimestral (libre)",
 }
 from app import auth
 from app.database import get_db
