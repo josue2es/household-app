@@ -335,7 +335,16 @@ def pick_password() -> str | None:
 # CSV Imports
 # ============================================================
 
-VALID_CATEGORIES = {"Food", "Groceries", "House Maintenance", "Pet Supplies", "Other"}
+VALID_CATEGORIES = {
+    "Despensa",
+    "Frescos",
+    "Carnes y Lácteos",
+    "Panadería",
+    "Cuidado Personal",
+    "Limpieza del Hogar",
+    "Mascotas",
+    "Otros",
+}
 
 
 def import_groceries() -> None:
@@ -343,7 +352,7 @@ def import_groceries() -> None:
     print_header("Import Grocery Items")
     print("\nExpected CSV columns: name, category, purchase_count")
     print(f"Categories: {', '.join(sorted(VALID_CATEGORIES))}")
-    print("\nExample row:  Coffee,Food,15\n")
+    print("\nExample row:  Café,Despensa,15\n")
 
     path_str = prompt("Path to CSV file")
     if not path_str:

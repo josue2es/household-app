@@ -16,15 +16,16 @@ from app.services.grocery_service import (
 )
 
 
-CATEGORIES = ["Food", "Groceries", "House Maintenance", "Pet Supplies", "Other"]
-
-CATEGORY_LABELS = {
-    "Food": "Comida",
-    "Groceries": "Abarrotes",
-    "House Maintenance": "Mantenimiento del hogar",
-    "Pet Supplies": "Mascotas",
-    "Other": "Otro",
-}
+CATEGORIES = [
+    "Despensa",
+    "Frescos",
+    "Carnes y Lácteos",
+    "Panadería",
+    "Cuidado Personal",
+    "Limpieza del Hogar",
+    "Mascotas",
+    "Otros",
+]
 
 
 def render():
@@ -61,7 +62,7 @@ def _render_smart_add(refresh_fn):
         )
 
         category_select = (
-            ui.select(CATEGORY_LABELS, value="Food", label="Categoría")
+            ui.select(CATEGORIES, value="Despensa", label="Categoría")
             .classes("w-full")
             .props("outlined")
         )
@@ -116,7 +117,7 @@ def _render_active_list(refresh_fn):
         by_cat.setdefault(category, []).append((entry_id, name, added_by))
 
     for category in sorted(by_cat.keys()):
-        ui.label(CATEGORY_LABELS.get(category, category)).classes(
+        ui.label(category).classes(
             "text-sm font-semibold text-gray-500 uppercase tracking-wide mt-2"
         )
         for entry_id, name, added_by in by_cat[category]:

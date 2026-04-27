@@ -70,14 +70,25 @@ def seed():
         if db.query(GroceryItem).count() == 0:
             print("→ Creating sample grocery items...")
             items = [
-                GroceryItem(name="Coffee", category="Food", purchase_count=15),
-                GroceryItem(name="Milk", category="Food", purchase_count=12),
-                GroceryItem(name="Bread", category="Food", purchase_count=10),
-                GroceryItem(name="Loroco", category="Food", purchase_count=4),
-                GroceryItem(name="Cat Food", category="Pet Supplies", purchase_count=8),
-                GroceryItem(name="Dish Soap", category="House Maintenance", purchase_count=6),
-                GroceryItem(name="Toilet Paper", category="House Maintenance", purchase_count=9),
-                GroceryItem(name="Avocados", category="Food", purchase_count=2),
+                GroceryItem(name="Café", category="Despensa", purchase_count=15),
+                GroceryItem(name="Arroz", category="Despensa", purchase_count=14),
+                GroceryItem(name="Frijoles", category="Despensa", purchase_count=13),
+                GroceryItem(name="Aceite", category="Despensa", purchase_count=11),
+                GroceryItem(name="Leche", category="Carnes y Lácteos", purchase_count=12),
+                GroceryItem(name="Huevos", category="Carnes y Lácteos", purchase_count=10),
+                GroceryItem(name="Queso", category="Carnes y Lácteos", purchase_count=7),
+                GroceryItem(name="Pollo", category="Carnes y Lácteos", purchase_count=6),
+                GroceryItem(name="Tomates", category="Frescos", purchase_count=9),
+                GroceryItem(name="Cebollas", category="Frescos", purchase_count=8),
+                GroceryItem(name="Aguacates", category="Frescos", purchase_count=5),
+                GroceryItem(name="Loroco", category="Frescos", purchase_count=4),
+                GroceryItem(name="Tortillas", category="Panadería", purchase_count=10),
+                GroceryItem(name="Pan francés", category="Panadería", purchase_count=8),
+                GroceryItem(name="Papel higiénico", category="Cuidado Personal", purchase_count=9),
+                GroceryItem(name="Shampoo", category="Cuidado Personal", purchase_count=5),
+                GroceryItem(name="Jabón de platos", category="Limpieza del Hogar", purchase_count=6),
+                GroceryItem(name="Detergente", category="Limpieza del Hogar", purchase_count=5),
+                GroceryItem(name="Comida para gato", category="Mascotas", purchase_count=8),
             ]
             db.add_all(items)
             for i in items:
