@@ -6,66 +6,119 @@ Key responsibilities:
   - Recording completions (with user attribution and timestamp).
   - Listing tasks that are still pending today.
 """
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models import Task, TaskLog
 
+# Local timezone used both here (for determining "today") and in the UI (for display).
+# All DB timestamps are stored as UTC-naive; we convert boundaries before comparing.
+LOCAL_TZ = timezone(timedelta(hours=-6))
+
+# Frequency types that target a specific date/day vs. flexible "any day this period" types.
+SPECIFIC_DATE_TYPES = {"once", "daily", "weekly", "specific_days", "monthly"}
+FLEXIBLE_TYPES = {"weekly_any", "monthly_any", "bimonthly_any"}
+
 
 # --- Helpers ---
 
-def _today_bounds() -> tuple[datetime, datetime]:
-    """
-    Return the start and end of "today" in UTC, matching how completed_at is stored.
-
-    All timestamps are in UTC. We compute the UTC day window so that the
-    user's "today" lines up with the server's stored times.
-    """
-    now_utc = datetime.utcnow()
-    start = datetime.combine(now_utc.date(), time.min)
-    end = datetime.combine(now_utc.date(), time.max)
+def _local_date_to_utc_bounds(d: date) -> tuple[datetime, datetime]:
+    """Convert a local calendar date to UTC-naive start/end for DB queries."""
+    start = datetime.combine(d, time.min, tzinfo=LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+    end = datetime.combine(d, time.max, tzinfo=LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None)
     return start, end
+
+
+def _today_bounds() -> tuple[datetime, datetime]:
+    """Return UTC-naive start/end of the user's current local day."""
+    return _local_date_to_utc_bounds(datetime.now(LOCAL_TZ).date())
+
+
+def _period_bounds(ftype: str, today: date) -> tuple[datetime, datetime]:
+    """
+    Return the UTC-naive completion window for a task based on its frequency type.
+
+    Specific-date tasks only care about today; flexible tasks care about the
+    whole week, month, or two-month block so a single completion hides the
+    task for the rest of the period.
+    """
+    if ftype in SPECIFIC_DATE_TYPES:
+        return _local_date_to_utc_bounds(today)
+
+    if ftype == "weekly_any":
+        week_start = today - timedelta(days=today.weekday())  # Monday
+        week_end = week_start + timedelta(days=6)             # Sunday
+        start, _ = _local_date_to_utc_bounds(week_start)
+        _, end = _local_date_to_utc_bounds(week_end)
+        return start, end
+
+    if ftype == "monthly_any":
+        month_start = today.replace(day=1)
+        # Last day of the month
+        if today.month == 12:
+            month_end = date(today.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            month_end = date(today.year, today.month + 1, 1) - timedelta(days=1)
+        start, _ = _local_date_to_utc_bounds(month_start)
+        _, end = _local_date_to_utc_bounds(month_end)
+        return start, end
+
+    if ftype == "bimonthly_any":
+        # Fixed two-month blocks: Jan-Feb, Mar-Apr, May-Jun, Jul-Aug, Sep-Oct, Nov-Dec
+        block_start_month = ((today.month - 1) // 2) * 2 + 1
+        block_end_month = block_start_month + 1
+        period_start = date(today.year, block_start_month, 1)
+        if block_end_month == 12:
+            period_end = date(today.year, 12, 31)
+        else:
+            period_end = date(today.year, block_end_month + 1, 1) - timedelta(days=1)
+        start, _ = _local_date_to_utc_bounds(period_start)
+        _, end = _local_date_to_utc_bounds(period_end)
+        return start, end
+
+    # Fallback: treat as today-only
+    return _local_date_to_utc_bounds(today)
 
 
 def is_task_due_today(task: Task, today: date | None = None) -> bool:
     """
     Decide whether a task should appear on today's list.
 
-    This pure function takes a Task object and returns True/False.
-    Pure = no DB calls, no side effects — easy to test.
+    Flexible types (weekly_any, monthly_any, bimonthly_any) always return True —
+    the completion-period check in get_pending_tasks_today handles hiding them
+    once they've been done within their window.
     """
     if today is None:
-        today = datetime.utcnow().date()
+        today = datetime.now(LOCAL_TZ).date()
 
     if not task.is_active:
         return False
 
-    config = task.frequency_config or {}
     ftype = task.frequency_type
 
+    if ftype in FLEXIBLE_TYPES:
+        return True
+
+    config = task.frequency_config or {}
+
     if ftype == "once":
-        # One-off task on a specific date.
         target = config.get("date")
         if not target:
             return False
-        # Stored as ISO string "YYYY-MM-DD" → parse to date.
         return date.fromisoformat(target) == today
 
     if ftype == "daily":
         return True
 
     if ftype == "weekly":
-        # Single weekday, e.g. {"weekday": 0} for Monday.
         return today.weekday() == config.get("weekday")
 
     if ftype == "specific_days":
-        # List of weekdays, e.g. {"weekdays": [0, 2, 4]} for Mon/Wed/Fri.
         return today.weekday() in config.get("weekdays", [])
 
     if ftype == "monthly":
-        # Specific day of the month, e.g. {"day": 15} for the 15th.
         return today.day == config.get("day")
-        
+
     return False  # Unknown frequency type — fail safe.
 
 
@@ -73,29 +126,28 @@ def is_task_due_today(task: Task, today: date | None = None) -> bool:
 
 def get_pending_tasks_today(db: Session) -> list[Task]:
     """
-    Return tasks that are:
-      1. Due today (per their frequency rule), AND
-      2. Not yet completed today.
-
-    This is what the dashboard renders.
+    Return tasks that are due today and not yet completed within their period,
+    ordered: specific-date tasks first, flexible tasks second.
     """
-    start, end = _today_bounds()
-
-    # All active tasks
+    today = datetime.now(LOCAL_TZ).date()
     candidates = db.query(Task).filter(Task.is_active.is_(True)).all()
+    due_today = [t for t in candidates if is_task_due_today(t, today)]
 
-    # Filter by "due today" using the pure function above
-    due_today = [t for t in candidates if is_task_due_today(t)]
+    # For each task check completion against its own period (not just today).
+    pending = []
+    for task in due_today:
+        period_start, period_end = _period_bounds(task.frequency_type, today)
+        already_done = db.query(TaskLog).filter(
+            TaskLog.task_id == task.id,
+            TaskLog.completed_at >= period_start,
+            TaskLog.completed_at <= period_end,
+        ).first()
+        if not already_done:
+            pending.append(task)
 
-    # Find which of those have already been completed today
-    completed_ids = {
-        log.task_id
-        for log in db.query(TaskLog)
-        .filter(TaskLog.completed_at >= start, TaskLog.completed_at <= end)
-        .all()
-    }
-
-    return [t for t in due_today if t.id not in completed_ids]
+    # Specific-date tasks first, flexible "any day" tasks after.
+    pending.sort(key=lambda t: t.frequency_type in FLEXIBLE_TYPES)
+    return pending
 
 
 def get_completed_tasks_today(db: Session) -> list[TaskLog]:

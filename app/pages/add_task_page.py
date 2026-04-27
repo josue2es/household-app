@@ -19,9 +19,12 @@ WEEKDAYS = [
 FREQUENCY_OPTIONS = {
     "once": "Una sola vez (fecha específica)",
     "daily": "Diario",
-    "weekly": "Semanal (un día de la semana)",
+    "weekly": "Semanal (día específico)",
     "specific_days": "Días específicos de la semana",
-    "monthly": "Mensual (día del mes)",
+    "monthly": "Mensual (día específico)",
+    "weekly_any": "Semanal (cualquier día)",
+    "monthly_any": "Mensual (cualquier día)",
+    "bimonthly_any": "Bimestral (cualquier día)",
 }
 
 
@@ -101,6 +104,21 @@ def render():
                             .props("outlined")
                         )
                         day_select.bind_value(state, "monthly_day")
+
+                    elif ftype == "weekly_any":
+                        ui.label("Aparece cada día hasta completarse en la semana.").classes(
+                            "text-sm text-gray-500"
+                        )
+
+                    elif ftype == "monthly_any":
+                        ui.label("Aparece cada día hasta completarse en el mes.").classes(
+                            "text-sm text-gray-500"
+                        )
+
+                    elif ftype == "bimonthly_any":
+                        ui.label("Aparece cada día hasta completarse en el bimestre (cada 2 meses).").classes(
+                            "text-sm text-gray-500"
+                        )
 
             render_dynamic()
             freq_select.on_value_change(lambda _: render_dynamic())
