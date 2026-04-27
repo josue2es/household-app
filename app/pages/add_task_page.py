@@ -25,6 +25,7 @@ FREQUENCY_OPTIONS = {
     "weekly_any": "Semanal (cualquier día)",
     "monthly_any": "Mensual (cualquier día)",
     "bimonthly_any": "Bimestral (cualquier día)",
+    "every_x_days": "Cada X días",
 }
 
 
@@ -40,6 +41,7 @@ def render():
             "weekly_day": 0,
             "specific_days": [],
             "monthly_day": 1,
+            "x_days": 7,
         }
 
         with ui.card().classes("w-full p-4 gap-3"):
@@ -120,6 +122,17 @@ def render():
                             "text-sm text-gray-500"
                         )
 
+                    elif ftype == "every_x_days":
+                        days_input = (
+                            ui.number("Cada cuántos días", value=state["x_days"], min=1, max=365)
+                            .classes("w-full")
+                            .props("outlined")
+                        )
+                        days_input.bind_value(state, "x_days")
+                        ui.label(
+                            "Reaparece exactamente ese número de días después de la última vez completada."
+                        ).classes("text-sm text-gray-500")
+
             render_dynamic()
             freq_select.on_value_change(lambda _: render_dynamic())
 
@@ -173,8 +186,14 @@ def _save(state: dict):
             return
         config = {"weekdays": sorted(state["specific_days"])}
     elif ftype == "monthly":
-            config = {"day": int(state["monthly_day"])}
-            
+        config = {"day": int(state["monthly_day"])}
+    elif ftype == "every_x_days":
+        x = int(state.get("x_days") or 7)
+        if x < 1:
+            show_error("El número de días debe ser al menos 1")
+            return
+        config = {"days": x}
+
     with get_db() as db:
         create_task(
             db,
