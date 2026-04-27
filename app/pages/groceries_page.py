@@ -46,11 +46,9 @@ def _render_smart_add(refresh_fn):
     with ui.card().classes("w-full p-3 gap-3"):
         with get_db() as db:
             all_items = search_suggestions(db, query="", limit=None)
-
-        # Names list drives the native autocomplete (browser datalist — always works).
-        all_names = [item.name for item in all_items]
-        # Lowercase set for fast "does this exist?" check at add-time.
-        known = {item.name.lower() for item in all_items}
+            # Extract plain strings inside the session before it closes.
+            all_names = [item.name for item in all_items]
+            known = {item.name.lower() for item in all_items}
 
         name_input = (
             ui.input(
