@@ -45,7 +45,7 @@ def _render_smart_add(refresh_fn):
     """The combo box that suggests previously-bought items, sorted by frequency."""
     with ui.card().classes("w-full p-3"):
         with get_db() as db:
-            initial = search_suggestions(db, query="", limit=20)
+            initial = search_suggestions(db, query="", limit=None)
             options = {item.name: f"{item.name} ({item.purchase_count}x)" for item in initial}
 
         # NiceGUI's `ui.select` with `with_input=True` becomes a searchable combo box.

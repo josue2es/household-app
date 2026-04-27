@@ -24,7 +24,7 @@ def get_active_list(db: Session) -> list[ActiveShoppingItem]:
     )
 
 
-def search_suggestions(db: Session, query: str = "", limit: int = 20) -> list[GroceryItem]:
+def search_suggestions(db: Session, query: str = "", limit: int | None = None) -> list[GroceryItem]:
     """
     Suggestions for the smart-add combo box.
 
@@ -41,15 +41,14 @@ def search_suggestions(db: Session, query: str = "", limit: int = 20) -> list[Gr
         like = f"%{query.strip()}%"
         q = q.filter(GroceryItem.name.ilike(like))
 
-    return (
-        q.order_by(
-            GroceryItem.purchase_count.desc(),
-            GroceryItem.last_purchased_at.desc().nullslast(),
-            GroceryItem.name.asc(),
-        )
-        .limit(limit)
-        .all()
+    q = q.order_by(
+        GroceryItem.purchase_count.desc(),
+        GroceryItem.last_purchased_at.desc().nullslast(),
+        GroceryItem.name.asc(),
     )
+    if limit is not None:
+        q = q.limit(limit)
+    return q.all()
 
 
 def add_to_active_list(
