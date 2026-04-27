@@ -6,24 +6,27 @@ Key responsibilities:
   - Recording completions (with user attribution and timestamp).
   - Listing tasks that are still pending today.
 """
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models import Task, TaskLog
+
+# Local timezone used both here (for determining "today") and in the UI (for display).
+# All DB timestamps are stored as UTC-naive; we convert boundaries before comparing.
+LOCAL_TZ = timezone(timedelta(hours=-6))
 
 
 # --- Helpers ---
 
 def _today_bounds() -> tuple[datetime, datetime]:
     """
-    Return the start and end of "today" in UTC, matching how completed_at is stored.
-
-    All timestamps are in UTC. We compute the UTC day window so that the
-    user's "today" lines up with the server's stored times.
+    Return the start and end of the user's local "today" expressed as UTC-naive
+    datetimes, matching how completed_at is stored in the DB.
     """
-    now_utc = datetime.utcnow()
-    start = datetime.combine(now_utc.date(), time.min)
-    end = datetime.combine(now_utc.date(), time.max)
+    now_local = datetime.now(LOCAL_TZ)
+    local_today = now_local.date()
+    start = datetime.combine(local_today, time.min, tzinfo=LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+    end = datetime.combine(local_today, time.max, tzinfo=LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None)
     return start, end
 
 
@@ -35,7 +38,7 @@ def is_task_due_today(task: Task, today: date | None = None) -> bool:
     Pure = no DB calls, no side effects — easy to test.
     """
     if today is None:
-        today = datetime.utcnow().date()
+        today = datetime.now(LOCAL_TZ).date()
 
     if not task.is_active:
         return False

@@ -1,7 +1,7 @@
 """Tasks dashboard."""
 from nicegui import ui
-from datetime import timezone, timedelta
-LOCAL_TZ = timezone(timedelta(hours=-6))
+
+from app.services.task_service import LOCAL_TZ  # single definition, shared with service
 
 FREQUENCY_LABELS = {
     "once": "Una vez",
