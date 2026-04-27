@@ -22,7 +22,7 @@ COPY app/ ./app/
 
 # ---- Step 5: Tell Docker which port the app listens on ----
 # This is documentation — the actual port mapping happens in docker-compose.
-EXPOSE 8080
+EXPOSE 8090
 
 # ---- Step 6: The command that starts the app ----
 # Equivalent to running `python -m app.main` inside the container.
