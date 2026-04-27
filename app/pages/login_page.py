@@ -20,7 +20,7 @@ def render():
         with ui.card().classes("w-full p-6"):
             users = auth.list_users()
             if not users:
-                ui.label("No se encontraron usuarios. Ejecuta `python -m app.seed` primero.").classes("text-red-500")
+                ui.label("No se encontraron usuarios. Crea uno desde el CLI de administración.").classes("text-red-500")
                 return
 
             user_options = {name: name for _, name, _ in users}

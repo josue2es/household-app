@@ -40,7 +40,6 @@ Your prompt should now show `(.venv) PS C:\...\household-app>`.
 | Command | What it does |
 |---------|--------------|
 | `python -m app.main` | Start the NiceGUI server on http://localhost:8080 |
-| `python -m app.seed` | Populate the DB with test users, tasks, groceries |
 | `python -m sanity_test` | Run a quick health check on the DB |
 
 Stop the server with **`Ctrl+C`**.
@@ -182,7 +181,7 @@ git push
 ```powershell
 # Stop the server first!
 Remove-Item data\household.db
-python -m app.seed     # recreate with sample data
+python -m app.main     # restart — tables are recreated automatically
 ```
 
 ### "I want to deploy a new version to the VPS"
