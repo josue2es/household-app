@@ -1,5 +1,5 @@
 """Tasks dashboard."""
-from datetime import timezone
+from datetime import datetime, timezone
 from nicegui import ui
 
 from app import auth
@@ -8,8 +8,10 @@ from app.ui_helpers import mobile_layout
 from app.services.task_service import (
     LOCAL_TZ,
     SPECIFIC_DATE_TYPES,
+    FLEXIBLE_TYPES,
     get_pending_tasks_today,
     get_completed_tasks_for_today,
+    get_flexible_urgency,
     complete_task,
     remove_task,
     undo_task_completion,
@@ -36,10 +38,18 @@ def render():
 
 
 def _build_page():
+    today = datetime.now(LOCAL_TZ).date()
+
     with get_db() as db:
         pending = get_pending_tasks_today(db)
+        flexible_pending = [t for t in pending if t.frequency_type in FLEXIBLE_TYPES]
+        urgency = get_flexible_urgency(db, flexible_pending, today)
         pending_data = [
-            (t.id, t.name, t.description, t.frequency_type, t.frequency_config or {})
+            (
+                t.id, t.name, t.description, t.frequency_type, t.frequency_config or {},
+                urgency.get(t.id, (None, False))[0],   # days_remaining
+                urgency.get(t.id, (None, False))[1],   # is_overdue
+            )
             for t in pending
         ]
 
@@ -103,23 +113,56 @@ def _build_page():
         ).props("fab color=primary")
 
 
-def _render_pending_card(task_id, name, desc, ftype, fconfig):
-    badge_label = (
+def _render_pending_card(task_id, name, desc, ftype, fconfig,
+                         days_remaining=None, is_overdue=False):
+    freq_label = (
         f"Cada {fconfig.get('days', '?')} días"
         if ftype == "every_x_days"
         else FREQUENCY_LABELS.get(ftype, ftype)
     )
-    with ui.card().classes("w-full p-3"):
+
+    # Only period-based flexible types get a countdown badge.
+    has_countdown = ftype in ("weekly_any", "monthly_any", "bimonthly_any") and days_remaining is not None
+
+    # Countdown badge text and colour.
+    countdown_label = countdown_color = None
+    if has_countdown:
+        if days_remaining == 0:
+            countdown_label, countdown_color = "Vence hoy", "negative"
+        elif days_remaining == 1:
+            countdown_label, countdown_color = "1 día restante", "warning"
+        elif days_remaining <= 3:
+            countdown_label, countdown_color = f"{days_remaining} días restantes", "warning"
+        else:
+            countdown_label, countdown_color = f"{days_remaining} días restantes", "grey-5"
+
+    # Card and text styling change when overdue.
+    if is_overdue:
+        card_cls  = "w-full p-3 bg-red-50 border border-red-300"
+        name_cls  = "font-medium text-red-800"
+    else:
+        card_cls  = "w-full p-3"
+        name_cls  = "font-medium text-gray-800"
+
+    with ui.card().classes(card_cls):
         with ui.row().classes("w-full items-center gap-3"):
             ui.button(
                 icon="radio_button_unchecked",
                 on_click=lambda tid=task_id: do_complete(tid),
             ).props("flat round size=md color=primary")
+
             with ui.column().classes("gap-0 flex-1"):
-                ui.label(name).classes("font-medium text-gray-800")
+                ui.label(name).classes(name_cls)
                 if desc:
                     ui.label(desc).classes("text-xs text-gray-500")
-                ui.badge(badge_label, color="grey-4").classes("text-xs mt-1")
+                with ui.row().classes("gap-1 mt-1 flex-wrap"):
+                    ui.badge(freq_label, color="grey-4").classes("text-xs")
+                    if countdown_label:
+                        ui.badge(countdown_label, color=countdown_color).classes("text-xs")
+
+            # "Atrasado" sits at the far right of the row, above the badges.
+            if is_overdue:
+                ui.badge("Atrasado", color="negative").classes("text-xs self-start")
 
 
 def do_complete(task_id):

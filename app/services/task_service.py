@@ -90,6 +90,98 @@ def _period_bounds(ftype: str, today: date, config: dict | None = None) -> tuple
     return _local_date_to_utc_bounds(today)
 
 
+def _period_end_date(ftype: str, today: date, config: dict) -> date | None:
+    """Last calendar day of the current period. Returns None for every_x_days (no fixed deadline)."""
+    if ftype == "weekly_any":
+        return today + timedelta(days=6 - today.weekday())  # Sunday of current week
+    if ftype == "monthly_any":
+        if today.month == 12:
+            return date(today.year + 1, 1, 1) - timedelta(days=1)
+        return date(today.year, today.month + 1, 1) - timedelta(days=1)
+    if ftype == "bimonthly_any":
+        block_start_month = ((today.month - 1) // 2) * 2 + 1
+        block_end_month = block_start_month + 1
+        if block_end_month == 12:
+            return date(today.year, 12, 31)
+        return date(today.year, block_end_month + 1, 1) - timedelta(days=1)
+    return None
+
+
+def _prev_period_utc_bounds(ftype: str, today: date) -> tuple[datetime, datetime] | None:
+    """UTC-naive bounds for the period immediately before the current one. None for every_x_days."""
+    if ftype == "weekly_any":
+        week_start = today - timedelta(days=today.weekday())  # Monday of this week
+        prev_end = week_start - timedelta(days=1)             # Sunday of last week
+        prev_start = prev_end - timedelta(days=6)             # Monday of last week
+        s, _ = _local_date_to_utc_bounds(prev_start)
+        _, e = _local_date_to_utc_bounds(prev_end)
+        return s, e
+    if ftype == "monthly_any":
+        first_of_month = today.replace(day=1)
+        prev_end = first_of_month - timedelta(days=1)
+        prev_start = prev_end.replace(day=1)
+        s, _ = _local_date_to_utc_bounds(prev_start)
+        _, e = _local_date_to_utc_bounds(prev_end)
+        return s, e
+    if ftype == "bimonthly_any":
+        block_start_month = ((today.month - 1) // 2) * 2 + 1
+        block_start = date(today.year, block_start_month, 1)
+        prev_end = block_start - timedelta(days=1)
+        prev_block_start_month = ((prev_end.month - 1) // 2) * 2 + 1
+        prev_start = date(prev_end.year, prev_block_start_month, 1)
+        s, _ = _local_date_to_utc_bounds(prev_start)
+        _, e = _local_date_to_utc_bounds(prev_end)
+        return s, e
+    return None
+
+
+def get_flexible_urgency(
+    db: Session, tasks: list[Task], today: date
+) -> dict[int, tuple[int | None, bool]]:
+    """
+    For a list of flexible pending tasks, return display metadata.
+    Returns {task_id: (days_remaining, is_overdue)}.
+
+    days_remaining: calendar days until the end of the current period.
+                    None for every_x_days which has no fixed deadline.
+    is_overdue:     True when the task existed during the previous period
+                    but had no completion logged in that period.
+    """
+    result: dict[int, tuple[int | None, bool]] = {}
+
+    for task in tasks:
+        ftype = task.frequency_type
+        config = task.frequency_config or {}
+
+        if ftype not in FLEXIBLE_TYPES:
+            continue
+
+        end_date = _period_end_date(ftype, today, config)
+        days_remaining = (end_date - today).days if end_date is not None else None
+
+        is_overdue = False
+        prev_bounds = _prev_period_utc_bounds(ftype, today)
+        if prev_bounds:
+            prev_start, prev_end = prev_bounds
+            task_created = task.created_at  # stored as UTC-naive
+            if task_created is not None and task_created <= prev_end:
+                done_in_prev = (
+                    db.query(TaskLog)
+                    .filter(
+                        TaskLog.task_id == task.id,
+                        TaskLog.completed_at >= prev_start,
+                        TaskLog.completed_at <= prev_end,
+                    )
+                    .first()
+                )
+                if not done_in_prev:
+                    is_overdue = True
+
+        result[task.id] = (days_remaining, is_overdue)
+
+    return result
+
+
 def is_task_due_today(task: Task, today: date | None = None) -> bool:
     """
     Decide whether a task should appear on today's list.
