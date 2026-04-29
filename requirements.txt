@@ -1,3 +1,4 @@
 nicegui==2.7.0
 sqlalchemy==2.0.36
 bcrypt==4.2.1
+mcp[cli]>=1.0.0
