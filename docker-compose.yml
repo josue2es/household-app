@@ -9,4 +9,5 @@ services:
       - ./data:/app/data
     environment:
       - STORAGE_SECRET=${STORAGE_SECRET:-dev-secret-change-me}
+      - MCP_API_KEY=${MCP_API_KEY:-}
     restart: unless-stopped
