@@ -3,9 +3,11 @@ services:
     build: .
     container_name: household-app
     ports:
-      - "8090:8080"
+      - "8090:8080"   # NiceGUI web app
+      - "8091:8081"   # MCP server (SSE transport)
     volumes:
       - ./data:/app/data
     environment:
       - STORAGE_SECRET=${STORAGE_SECRET:-dev-secret-change-me}
+      - MCP_API_KEY=${MCP_API_KEY:-}
     restart: unless-stopped

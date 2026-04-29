@@ -340,4 +340,35 @@ def remove_from_shopping_list(entry_id: int) -> str:
 # ============================================================
 
 if __name__ == "__main__":
-    mcp.run()
+    import os
+    transport = os.getenv("MCP_TRANSPORT", "stdio")
+
+    if transport == "sse":
+        import uvicorn
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.responses import PlainTextResponse
+
+        host    = os.getenv("MCP_HOST", "0.0.0.0")
+        port    = int(os.getenv("MCP_PORT", "8081"))
+        api_key = os.getenv("MCP_API_KEY", "")
+
+        if not api_key:
+            print("WARNING: MCP_API_KEY is not set — server is unauthenticated", flush=True)
+
+        class BearerAuthMiddleware(BaseHTTPMiddleware):
+            """Reject requests that don't carry the correct bearer token."""
+            async def dispatch(self, request, call_next):
+                if api_key:
+                    auth = request.headers.get("Authorization", "")
+                    if auth != f"Bearer {api_key}":
+                        return PlainTextResponse("Unauthorized", status_code=401)
+                return await call_next(request)
+
+        # Get the raw Starlette app from FastMCP and wrap it with auth.
+        app = BearerAuthMiddleware(mcp.sse_app())
+        print(f"Starting MCP server (SSE) on {host}:{port}", flush=True)
+        uvicorn.run(app, host=host, port=port)
+
+    else:
+        # stdio mode — used for local development and direct subprocess launch.
+        mcp.run()
