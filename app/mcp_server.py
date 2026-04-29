@@ -11,6 +11,13 @@ The server uses stdio transport by default, which is what MCP clients
 (Claude Desktop, Claude Code, etc.) expect when they launch it as a
 subprocess.
 """
+import sys
+from pathlib import Path
+
+# When launched by `mcp dev` or a client subprocess, the project root
+# may not be on sys.path. This ensures `app.*` imports always resolve.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from datetime import date, datetime, timezone
 from mcp.server.fastmcp import FastMCP
 
