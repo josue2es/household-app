@@ -121,8 +121,14 @@ def _render_pending_card(task_id, name, desc, ftype, fconfig,
         else FREQUENCY_LABELS.get(ftype, ftype)
     )
 
-    # Only period-based flexible types get a countdown badge.
-    has_countdown = ftype in ("weekly_any", "monthly_any", "bimonthly_any") and days_remaining is not None
+    # All flexible types get a countdown badge.
+    # For every_x_days, suppress countdown once overdue — the deadline passed and
+    # "Vence hoy" would be misleading; the red "Atrasado" badge tells the story.
+    has_countdown = (
+        ftype in FLEXIBLE_TYPES
+        and days_remaining is not None
+        and not (ftype == "every_x_days" and is_overdue)
+    )
 
     # Countdown badge text and colour.
     countdown_label = countdown_color = None
