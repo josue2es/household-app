@@ -19,11 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ---- Step 4: Copy your application code ----
 # This copies the `app/` folder into /app/app inside the container.
 COPY app/ ./app/
+COPY start.sh .
 
-# ---- Step 5: Tell Docker which port the app listens on ----
-# This is documentation — the actual port mapping happens in docker-compose.
-EXPOSE 8080
+# ---- Step 5: Tell Docker which ports the app listens on ----
+# 8080 = NiceGUI web app, 8081 = MCP server (SSE transport)
+EXPOSE 8080 8081
 
-# ---- Step 6: The command that starts the app ----
-# Equivalent to running `python -m app.main` inside the container.
-CMD ["python", "-m", "app.main"]
+# ---- Step 6: The command that starts both processes ----
+# start.sh launches the MCP server in the background then the NiceGUI
+# app in the foreground. The container stays alive as long as NiceGUI runs.
+CMD ["bash", "start.sh"]

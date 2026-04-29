@@ -340,4 +340,15 @@ def remove_from_shopping_list(entry_id: int) -> str:
 # ============================================================
 
 if __name__ == "__main__":
-    mcp.run()
+    import os
+    transport = os.getenv("MCP_TRANSPORT", "stdio")
+    if transport == "sse":
+        # SSE mode: used when running inside Docker on a VPS.
+        # The client connects over HTTP instead of a stdin/stdout pipe.
+        host = os.getenv("MCP_HOST", "0.0.0.0")
+        port = int(os.getenv("MCP_PORT", "8081"))
+        print(f"Starting MCP server (SSE) on {host}:{port}", flush=True)
+        mcp.run(transport="sse", host=host, port=port)
+    else:
+        # stdio mode: used for local development and direct subprocess launch.
+        mcp.run()
