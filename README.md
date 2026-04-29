@@ -141,8 +141,8 @@ python -m app.admin --update  # update mode: existing records are overwritten on
 
 ```
 1. Manage users
-2. List all groceries
-3. List all tasks
+2. Manage groceries
+3. Manage tasks
 4. Import grocery items from CSV
 5. Import tasks from CSV
 6. Export current data to CSV
@@ -157,6 +157,56 @@ New users must be created through the CLI (there is no sign-up page):
 ```
 
 You will be prompted for a name, an avatar color, and a password (minimum 6 characters, entered twice for confirmation).
+
+#### User submenu options
+
+| Option | Description |
+|---|---|
+| List all users | Table of all users with ID, name, color, and creation date |
+| Create new user | Prompts for name, avatar color, and password |
+| Change user password | Pick a user and set a new password |
+| Edit user | Change name and/or avatar color |
+| Delete user | Permanently deletes the user (completion history becomes orphaned) |
+
+### Grocery management
+
+```
+2. Manage groceries
+```
+
+| Option | Description |
+|---|---|
+| List all groceries | Table sorted by category, showing ID, name, category, and purchase count |
+| Add grocery item | Enter name, pick a category, optionally set purchase count |
+| Edit grocery item | Change name, category, and/or purchase count |
+| Delete grocery item | Permanently removes the item; warns if it is currently on the shopping list |
+
+### Task management
+
+```
+3. Manage tasks
+```
+
+| Option | Description |
+|---|---|
+| List all tasks | Table of all active tasks with name, frequency, and description |
+| Add task | Enter name, description, and choose frequency type with interactive prompts |
+| Edit task | Change name, description, and/or frequency |
+| Delete task | Soft-deactivates the task (completion history is preserved) |
+
+When adding or editing a task you will be guided through all frequency options:
+
+```
+ 1. Diario
+ 2. Semanal (día específico)        → pick weekday
+ 3. Días específicos de la semana   → pick one or more weekdays
+ 4. Mensual (día específico)        → enter day of month
+ 5. Una sola vez (fecha específica) → enter YYYY-MM-DD date
+ 6. Semanal (cualquier día)
+ 7. Mensual (cualquier día)
+ 8. Bimestral (cualquier día)
+ 9. Cada X días                     → enter number of days
+```
 
 ### CSV import — grocery items
 

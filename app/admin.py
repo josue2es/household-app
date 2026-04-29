@@ -13,8 +13,9 @@ import csv
 from datetime import date
 from getpass import getpass
 from pathlib import Path
+from sqlalchemy import func
 from app.database import get_db
-from app.models import User, GroceryItem, Task
+from app.models import User, GroceryItem, Task, ActiveShoppingItem
 
 
 # Parse command-line flags once at startup.
@@ -59,8 +60,8 @@ def main_menu() -> None:
             print("  [Update mode: CSV imports will overwrite existing items]")
         print()
         print("  1. Manage users")
-        print("  2. List all groceries")
-        print("  3. List all tasks")
+        print("  2. Manage groceries")
+        print("  3. Manage tasks")
         print("  4. Import grocery items from CSV")
         print("  5. Import tasks from CSV")
         print("  6. Export current data to CSV")
@@ -72,11 +73,9 @@ def main_menu() -> None:
         if choice == "1":
             users_menu()
         elif choice == "2":
-            list_groceries()
-            pause()
+            groceries_menu()
         elif choice == "3":
-            list_tasks()
-            pause()
+            tasks_menu()
         elif choice == "4":
             import_groceries()
             pause()
@@ -174,6 +173,492 @@ def list_tasks() -> None:
         short_desc = desc[:40] + "…" if len(desc) > 40 else desc
         print(f"  {tid:<4} {name:<28} {freq:<28} {short_desc}")
     print(f"\n  {len(rows)} tarea(s) en total")
+
+
+# ============================================================
+# Groceries submenu
+# ============================================================
+
+def groceries_menu() -> None:
+    while True:
+        print_header("Manage Groceries")
+        print("  1. List all groceries")
+        print("  2. Add grocery item")
+        print("  3. Edit grocery item")
+        print("  4. Delete grocery item")
+        print("  0. Back to main menu")
+        print()
+
+        choice = prompt("Choose an option")
+        if choice == "1":
+            list_groceries()
+            pause()
+        elif choice == "2":
+            add_grocery()
+            pause()
+        elif choice == "3":
+            edit_grocery()
+            pause()
+        elif choice == "4":
+            delete_grocery()
+            pause()
+        elif choice == "0":
+            return
+        else:
+            print(f"\nInvalid choice: '{choice}'")
+            pause()
+
+
+def add_grocery() -> None:
+    print()
+    name = prompt("Item name")
+    if not name:
+        print("Cancelled (empty name).")
+        return
+
+    with get_db() as db:
+        existing = db.query(GroceryItem).filter(
+            func.lower(GroceryItem.name) == name.lower()
+        ).first()
+        if existing:
+            print(f"Item '{existing.name}' already exists (category: {existing.category}).")
+            return
+
+    category = pick_category()
+    if category is None:
+        return
+
+    count_str = prompt("Purchase count [0]") or "0"
+    try:
+        count = int(count_str)
+        if count < 0:
+            raise ValueError
+    except ValueError:
+        print(f"Invalid purchase count '{count_str}', using 0.")
+        count = 0
+
+    with get_db() as db:
+        db.add(GroceryItem(name=name.strip(), category=category, purchase_count=count))
+
+    print(f"\n✓ '{name}' added to the catalog (category: {category}).")
+
+
+def edit_grocery() -> None:
+    item = pick_grocery("Edit which item?")
+    if item is None:
+        return
+
+    print(f"\nCurrent: name='{item['name']}', category='{item['category']}', purchase_count={item['count']}")
+    print("(Press Enter to keep the current value)\n")
+
+    new_name = prompt(f"New name [{item['name']}]") or item["name"]
+    new_category = pick_category(default=item["category"])
+    if new_category is None:
+        return
+
+    count_str = prompt(f"Purchase count [{item['count']}]") or str(item["count"])
+    try:
+        new_count = int(count_str)
+        if new_count < 0:
+            raise ValueError
+    except ValueError:
+        print(f"Invalid purchase count, keeping {item['count']}.")
+        new_count = item["count"]
+
+    if new_name.lower() != item["name"].lower():
+        with get_db() as db:
+            conflict = db.query(GroceryItem).filter(
+                func.lower(GroceryItem.name) == new_name.lower()
+            ).first()
+            if conflict:
+                print(f"\nName '{new_name}' already taken.")
+                return
+
+    with get_db() as db:
+        gi = db.query(GroceryItem).filter(GroceryItem.id == item["id"]).first()
+        gi.name = new_name.strip()
+        gi.category = new_category
+        gi.purchase_count = new_count
+
+    print(f"\n✓ Item updated.")
+
+
+def delete_grocery() -> None:
+    item = pick_grocery("Delete which item?")
+    if item is None:
+        return
+
+    with get_db() as db:
+        active_count = (
+            db.query(ActiveShoppingItem)
+            .filter(
+                ActiveShoppingItem.item_id == item["id"],
+                ActiveShoppingItem.is_purchased.is_(False),
+            )
+            .count()
+        )
+
+    print(f"\n⚠ This will permanently delete '{item['name']}' from the catalog.")
+    if active_count > 0:
+        print(f"  It is currently on the active shopping list ({active_count} entry). That entry will also be removed.")
+
+    confirm = prompt("Type 'delete' to confirm")
+    if confirm.lower() != "delete":
+        print("Cancelled.")
+        return
+
+    with get_db() as db:
+        gi = db.query(GroceryItem).filter(GroceryItem.id == item["id"]).first()
+        if gi:
+            for entry in gi.shopping_entries:
+                db.delete(entry)
+            db.delete(gi)
+
+    print(f"\n✓ '{item['name']}' deleted from the catalog.")
+
+
+def pick_grocery(message: str) -> dict | None:
+    """Show a numbered list of grocery items, prompt for selection."""
+    with get_db() as db:
+        items = (
+            db.query(GroceryItem)
+            .order_by(GroceryItem.category, GroceryItem.name)
+            .all()
+        )
+        rows = [(i.id, i.name, i.category, i.purchase_count) for i in items]
+
+    if not rows:
+        print("\n(No grocery items in catalog)")
+        return None
+
+    print()
+    for idx, (iid, name, category, count) in enumerate(rows, start=1):
+        print(f"  {idx:>3}. {name:<28} {category:<22} ({count} compras)")
+    print("    0. Cancel")
+    print()
+
+    choice = prompt(message)
+    if choice == "0" or choice == "":
+        return None
+    try:
+        idx = int(choice)
+        if not 1 <= idx <= len(rows):
+            raise ValueError
+    except ValueError:
+        print(f"Invalid selection: '{choice}'")
+        return None
+
+    iid, name, category, count = rows[idx - 1]
+    return {"id": iid, "name": name, "category": category, "count": count}
+
+
+def pick_category(default: str | None = None) -> str | None:
+    """Show a numbered list of categories. Returns the chosen category or None on cancel."""
+    categories = sorted(VALID_CATEGORIES)
+    print("\n  Available categories:")
+    for idx, c in enumerate(categories, start=1):
+        marker = "  ← current" if c == default else ""
+        print(f"  {idx:>2}. {c}{marker}")
+    print()
+
+    label = "Pick a category"
+    if default:
+        label += f" [Enter to keep '{default}']"
+    choice = prompt(label)
+
+    if choice == "" and default:
+        return default
+    try:
+        idx = int(choice)
+        if not 1 <= idx <= len(categories):
+            raise ValueError
+        return categories[idx - 1]
+    except ValueError:
+        print(f"Invalid category choice: '{choice}'")
+        return None
+
+
+# ============================================================
+# Tasks submenu
+# ============================================================
+
+FREQUENCY_OPTIONS_LIST = [
+    ("daily",          "Diario"),
+    ("weekly",         "Semanal (día específico)"),
+    ("specific_days",  "Días específicos de la semana"),
+    ("monthly",        "Mensual (día específico)"),
+    ("once",           "Una sola vez (fecha específica)"),
+    ("weekly_any",     "Semanal (cualquier día)"),
+    ("monthly_any",    "Mensual (cualquier día)"),
+    ("bimonthly_any",  "Bimestral (cualquier día)"),
+    ("every_x_days",   "Cada X días"),
+]
+
+
+def tasks_menu() -> None:
+    while True:
+        print_header("Manage Tasks")
+        print("  1. List all tasks")
+        print("  2. Add task")
+        print("  3. Edit task")
+        print("  4. Delete task")
+        print("  0. Back to main menu")
+        print()
+
+        choice = prompt("Choose an option")
+        if choice == "1":
+            list_tasks()
+            pause()
+        elif choice == "2":
+            add_task()
+            pause()
+        elif choice == "3":
+            edit_task()
+            pause()
+        elif choice == "4":
+            delete_task()
+            pause()
+        elif choice == "0":
+            return
+        else:
+            print(f"\nInvalid choice: '{choice}'")
+            pause()
+
+
+def add_task() -> None:
+    print()
+    name = prompt("Task name")
+    if not name:
+        print("Cancelled (empty name).")
+        return
+
+    with get_db() as db:
+        existing = db.query(Task).filter(
+            Task.is_active.is_(True),
+            func.lower(Task.name) == name.lower(),
+        ).first()
+        if existing:
+            print(f"Task '{existing.name}' already exists.")
+            return
+
+    description = prompt("Description (optional, press Enter to skip)") or ""
+
+    result = pick_frequency()
+    if result is None:
+        return
+    ftype, fconfig = result
+
+    with get_db() as db:
+        db.add(Task(
+            name=name.strip(),
+            description=description,
+            frequency_type=ftype,
+            frequency_config=fconfig,
+            is_active=True,
+        ))
+
+    print(f"\n✓ Task '{name}' created ({_format_frequency(ftype, fconfig)}).")
+
+
+def edit_task() -> None:
+    task = pick_task("Edit which task?")
+    if task is None:
+        return
+
+    print(f"\nCurrent: name='{task['name']}'")
+    print(f"         description='{task['desc'] or '(none)'}'")
+    print(f"         frequency='{_format_frequency(task['ftype'], task['fconfig'])}'")
+    print("(Press Enter to keep the current value)\n")
+
+    new_name = prompt(f"New name [{task['name']}]") or task["name"]
+    new_desc = prompt(f"Description [{task['desc'] or 'none'}]")
+    if new_desc == "":
+        new_desc = task["desc"]
+
+    change_freq = prompt("Change frequency? (y/N)").lower()
+    if change_freq == "y":
+        result = pick_frequency()
+        if result is None:
+            return
+        new_ftype, new_fconfig = result
+    else:
+        new_ftype = task["ftype"]
+        new_fconfig = task["fconfig"]
+
+    if new_name.lower() != task["name"].lower():
+        with get_db() as db:
+            conflict = db.query(Task).filter(
+                Task.is_active.is_(True),
+                func.lower(Task.name) == new_name.lower(),
+            ).first()
+            if conflict:
+                print(f"\nTask name '{new_name}' already taken.")
+                return
+
+    with get_db() as db:
+        t = db.query(Task).filter(Task.id == task["id"]).first()
+        t.name = new_name.strip()
+        t.description = new_desc
+        t.frequency_type = new_ftype
+        t.frequency_config = new_fconfig
+
+    print(f"\n✓ Task updated.")
+
+
+def delete_task() -> None:
+    task = pick_task("Delete which task?")
+    if task is None:
+        return
+
+    print(f"\n⚠ This will deactivate '{task['name']}' (completion history is preserved).")
+    confirm = prompt(f"Type the task name '{task['name']}' to confirm")
+    if confirm != task["name"]:
+        print("Cancelled.")
+        return
+
+    with get_db() as db:
+        t = db.query(Task).filter(Task.id == task["id"]).first()
+        if t:
+            t.is_active = False
+
+    print(f"\n✓ Task '{task['name']}' deactivated.")
+
+
+def pick_task(message: str) -> dict | None:
+    """Show a numbered list of active tasks, prompt for selection."""
+    with get_db() as db:
+        tasks = (
+            db.query(Task)
+            .filter(Task.is_active.is_(True))
+            .order_by(Task.name)
+            .all()
+        )
+        rows = [
+            (t.id, t.name, t.description or "", t.frequency_type, t.frequency_config or {})
+            for t in tasks
+        ]
+
+    if not rows:
+        print("\n(No active tasks)")
+        return None
+
+    print()
+    for idx, (tid, name, desc, ftype, fconfig) in enumerate(rows, start=1):
+        freq = _format_frequency(ftype, fconfig)
+        print(f"  {idx:>3}. {name:<30} {freq}")
+    print("    0. Cancel")
+    print()
+
+    choice = prompt(message)
+    if choice == "0" or choice == "":
+        return None
+    try:
+        idx = int(choice)
+        if not 1 <= idx <= len(rows):
+            raise ValueError
+    except ValueError:
+        print(f"Invalid selection: '{choice}'")
+        return None
+
+    tid, name, desc, ftype, fconfig = rows[idx - 1]
+    return {"id": tid, "name": name, "desc": desc, "ftype": ftype, "fconfig": fconfig}
+
+
+def pick_frequency() -> tuple[str, dict] | None:
+    """Interactive frequency picker. Returns (ftype, fconfig) or None on cancel."""
+    print("\n  Frequency types:")
+    for idx, (ftype, label) in enumerate(FREQUENCY_OPTIONS_LIST, start=1):
+        print(f"  {idx:>2}. {label}")
+    print("   0. Cancel")
+    print()
+
+    choice = prompt("Pick a frequency type")
+    if choice == "0" or choice == "":
+        return None
+    try:
+        idx = int(choice)
+        if not 1 <= idx <= len(FREQUENCY_OPTIONS_LIST):
+            raise ValueError
+        ftype, _ = FREQUENCY_OPTIONS_LIST[idx - 1]
+    except ValueError:
+        print(f"Invalid choice: '{choice}'")
+        return None
+
+    fconfig = _prompt_frequency_config(ftype)
+    if fconfig is None:
+        return None
+    return ftype, fconfig
+
+
+def _prompt_frequency_config(ftype: str) -> dict | None:
+    """Prompt for config details of a given frequency type. Returns dict or None on cancel."""
+    if ftype in ("daily", "weekly_any", "monthly_any", "bimonthly_any"):
+        return {}
+
+    if ftype == "every_x_days":
+        val = prompt("Number of days (e.g. 14)")
+        try:
+            days = int(val)
+            if days < 1:
+                raise ValueError
+        except ValueError:
+            print(f"Invalid number of days: '{val}'")
+            return None
+        return {"days": days}
+
+    if ftype == "weekly":
+        print()
+        for idx, name in enumerate(WEEKDAY_NAMES, start=1):
+            print(f"  {idx}. {name}")
+        print()
+        val = prompt("Pick weekday (1=Lun … 7=Dom)")
+        try:
+            idx = int(val)
+            if not 1 <= idx <= 7:
+                raise ValueError
+            weekday = idx - 1
+        except ValueError:
+            print(f"Invalid weekday: '{val}'")
+            return None
+        return {"weekday": weekday}
+
+    if ftype == "specific_days":
+        print()
+        for idx, name in enumerate(WEEKDAY_NAMES, start=1):
+            print(f"  {idx}. {name}")
+        print()
+        val = prompt("Enter weekday numbers separated by spaces or commas (e.g. 2 5)")
+        try:
+            parts = [int(p.strip()) for p in val.replace(",", " ").split() if p.strip()]
+            if not parts or any(p < 1 or p > 7 for p in parts):
+                raise ValueError
+            weekdays = sorted(set(p - 1 for p in parts))
+        except ValueError:
+            print(f"Invalid weekdays: '{val}'")
+            return None
+        return {"weekdays": weekdays}
+
+    if ftype == "monthly":
+        val = prompt("Day of month (1–31)")
+        try:
+            day = int(val)
+            if not 1 <= day <= 31:
+                raise ValueError
+        except ValueError:
+            print(f"Invalid day: '{val}'")
+            return None
+        return {"day": day}
+
+    if ftype == "once":
+        val = prompt("Date (YYYY-MM-DD)")
+        try:
+            parsed = date.fromisoformat(val)
+        except ValueError:
+            print(f"Invalid date: '{val}'. Use YYYY-MM-DD format.")
+            return None
+        return {"date": parsed.isoformat()}
+
+    return {}
 
 
 # ============================================================
