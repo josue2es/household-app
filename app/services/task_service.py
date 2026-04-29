@@ -143,9 +143,10 @@ def get_flexible_urgency(
     Returns {task_id: (days_remaining, is_overdue)}.
 
     days_remaining: calendar days until the end of the current period.
-                    None for every_x_days which has no fixed deadline.
-    is_overdue:     True when the task existed during the previous period
-                    but had no completion logged in that period.
+                    For every_x_days: days left in the X-day window since the
+                    task first appeared (0 when the window expires).
+    is_overdue:     For period types: True when the previous period had no completion.
+                    For every_x_days: True when pending for more than X days.
     """
     result: dict[int, tuple[int | None, bool]] = {}
 
@@ -156,6 +157,34 @@ def get_flexible_urgency(
         if ftype not in FLEXIBLE_TYPES:
             continue
 
+        # ── every_x_days: rolling deadline based on last completion ──────────
+        if ftype == "every_x_days":
+            x = max(config.get("days", 1), 1)
+
+            last_log = (
+                db.query(TaskLog)
+                .filter(TaskLog.task_id == task.id)
+                .order_by(TaskLog.completed_at.desc())
+                .first()
+            )
+            if last_log:
+                # Convert stored UTC-naive datetime to local date, then advance by X days.
+                last_local = last_log.completed_at.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ)
+                first_appeared = last_local.date() + timedelta(days=x)
+            elif task.created_at:
+                created_local = task.created_at.replace(tzinfo=timezone.utc).astimezone(LOCAL_TZ)
+                first_appeared = created_local.date()
+            else:
+                first_appeared = today
+
+            days_pending = max(0, (today - first_appeared).days)
+            # User has X days from first appearance to complete the task.
+            days_remaining = max(0, x - days_pending - 1)
+            is_overdue = days_pending >= x
+            result[task.id] = (days_remaining, is_overdue)
+            continue
+
+        # ── Period-based flexible types ───────────────────────────────────────
         end_date = _period_end_date(ftype, today, config)
         days_remaining = (end_date - today).days if end_date is not None else None
 
