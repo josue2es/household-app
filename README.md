@@ -107,6 +107,7 @@ python -m app.main
 | Environment variable | Default | Description |
 |---|---|---|
 | `STORAGE_SECRET` | `dev-secret-change-me` | Secret used to sign NiceGUI browser sessions. **Change this in production.** |
+| `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated (not recommended on a VPS). |
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
 
@@ -114,6 +115,7 @@ Set it in a `.env` file at the project root:
 
 ```
 STORAGE_SECRET=some-long-random-string
+MCP_API_KEY=some-long-random-string
 GEMINI_API_KEY=your-gemini-api-key
 ```
 
@@ -124,6 +126,41 @@ The app uses a hardcoded UTC−6 offset to determine which tasks are due today a
 ```python
 LOCAL_TZ = timezone(timedelta(hours=-6))  # change -6 to your UTC offset
 ```
+
+---
+
+## MCP Server (AI agent access)
+
+Besides the web UI, the app runs a second server that exposes tasks and the shopping list as [MCP](https://modelcontextprotocol.io/) tools, so an AI agent (Claude Desktop, Claude Code, etc.) can read and manage them without opening the browser. Source: `app/mcp_server.py`.
+
+It supports two transport modes, controlled by the `MCP_TRANSPORT` env var:
+
+| Mode | When it's used | How a client connects |
+|---|---|---|
+| `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `python -m app.mcp_server`, run from the project root |
+| `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | HTTP to `http://<host>:8091` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
+
+### Available tools
+
+| Tool | Purpose |
+|---|---|
+| `list_pending_tasks` | Tasks due today (scheduled + flexible) |
+| `list_completed_tasks` | Tasks completed today, with who and when |
+| `complete_task(task_id, user_name)` | Mark a task done |
+| `add_task(name, frequency_type, frequency_value, description)` | Create a task (same frequency types as the Admin CLI) |
+| `delete_task(task_id)` | Soft-deactivate a task |
+| `get_shopping_list` | Items currently pending on the shopping list |
+| `add_to_shopping_list(item_name, user_name)` | Add an item (new items default to category "Otros") |
+| `mark_item_purchased(entry_id)` | Mark an item as bought |
+| `remove_from_shopping_list(entry_id)` | Remove an item without marking it purchased |
+
+### Enabling it on a VPS
+
+1. Set `MCP_API_KEY` in `.env` (see [Configuration](#configuration)).
+2. `docker compose up -d --build` — this starts the SSE server on container port 8081, published as host port **8091**.
+3. Configure your MCP client with the URL `http://<vps-host>:8091` and the token as the `Authorization: Bearer` header.
+
+If you don't use an MCP client, this server just runs in the background and can be ignored.
 
 ---
 
