@@ -44,6 +44,7 @@ A shared shopping list with a smart search field.
 - Items are grouped by category on the list.
 - Tap the circle to mark an item as purchased (increments its purchase count for future sorting).
 - Use the ⋮ menu to remove an item without marking it purchased.
+- Tap **Identificar con foto** to open the phone's camera, take a photo of a product, and let Gemini identify its name and category. A confirmation dialog lets you review/edit both before adding it to the list. Requires `GEMINI_API_KEY` to be configured; the button is disabled otherwise.
 
 #### Categories
 
@@ -105,6 +106,8 @@ python -m app.main
 | Environment variable | Default | Description |
 |---|---|---|
 | `STORAGE_SECRET` | `dev-secret-change-me` | Secret used to sign NiceGUI browser sessions. **Change this in production.** |
+| `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
+| `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
 
 Set it in a `.env` file at the project root:
 

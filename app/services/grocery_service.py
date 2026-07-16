@@ -14,6 +14,18 @@ from sqlalchemy.orm import Session
 from app.models import GroceryItem, ActiveShoppingItem
 
 
+CATEGORIES = [
+    "Despensa",
+    "Frescos",
+    "Carnes y Lácteos",
+    "Panadería",
+    "Cuidado Personal",
+    "Limpieza del Hogar",
+    "Mascotas",
+    "Otros",
+]
+
+
 def get_active_list(db: Session) -> list[ActiveShoppingItem]:
     """Items currently on the shopping list (not yet bought)."""
     return (
