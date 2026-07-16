@@ -69,6 +69,7 @@ A shared shopping list with a smart search field.
 | ORM | SQLAlchemy 2.0 |
 | Database | SQLite (single file at `data/household.db`) |
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
+| Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
 | Deployment | Docker + Docker Compose |
 
 ---
@@ -113,6 +114,7 @@ Set it in a `.env` file at the project root:
 
 ```
 STORAGE_SECRET=some-long-random-string
+GEMINI_API_KEY=your-gemini-api-key
 ```
 
 ### Timezone
