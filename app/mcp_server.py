@@ -345,11 +345,18 @@ if __name__ == "__main__":
 
     if transport == "sse":
         import uvicorn
+        from dotenv import load_dotenv
         from starlette.middleware.base import BaseHTTPMiddleware
         from starlette.responses import PlainTextResponse
 
-        host    = os.getenv("MCP_HOST", "0.0.0.0")
-        port    = int(os.getenv("MCP_PORT", "8081"))
+        # Load MCP_PORT, MCP_HOST and MCP_API_KEY from the project's .env file,
+        # if there is one. Variables already set in the environment win, so
+        # Docker's settings are never overridden. (stdio mode skips this: the
+        # MCP client that launches the server decides everything there.)
+        load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+        host    = os.getenv("MCP_HOST") or "0.0.0.0"
+        port    = int(os.getenv("MCP_PORT") or 8081)
         api_key = os.getenv("MCP_API_KEY", "")
 
         if not api_key:

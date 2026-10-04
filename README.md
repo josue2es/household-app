@@ -71,7 +71,7 @@ A shared shopping list with a smart search field.
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
 | Dependencies | [uv](https://docs.astral.sh/uv/) — declared in `pyproject.toml`, pinned in `uv.lock`; used both locally and in the Docker image |
-| Deployment | Docker + Docker Compose, or a systemd service (`deploy/household-app.service`) |
+| Deployment | Docker + Docker Compose, or systemd services (`deploy/`) |
 
 ---
 
@@ -125,53 +125,62 @@ Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact v
 
 ### As a systemd service (Linux, no Docker)
 
-To keep the app running in the background on a Linux machine without Docker (starting on boot and restarting if it crashes), use the unit file in `deploy/household-app.service`. It runs the app as a dedicated `household` user from `/opt/household-app`; if you use another folder, edit the paths in the unit file.
+To keep the app running in the background on a Linux machine without Docker (starting on boot and restarting if it crashes), use the two unit files in `deploy/`:
+
+| Unit | Runs | Port |
+|---|---|---|
+| `household-app.service` | The web app | `APP_PORT` (default 8080) |
+| `household-app-mcp.service` | The [MCP server](#mcp-server-ai-agent-access) in SSE mode | `MCP_PORT` (default 8081) |
+
+Both run as your own user from the repo folder in your home directory, and read their settings from the same `.env`.
 
 ```bash
-# 1. Create a system user to run the app (no login shell)
-sudo useradd --system --create-home --home-dir /var/lib/household-app --shell /usr/sbin/nologin household
+# 1. Install uv (then open a new terminal so `uv` is on your PATH)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. Put the code in /opt/household-app, owned by that user
-sudo git clone https://github.com/josue2es/household-app.git /opt/household-app
-sudo chown -R household:household /opt/household-app
+# 2. Get the code and install the dependencies
+git clone https://github.com/josue2es/household-app.git ~/household-app
+cd ~/household-app
+uv sync --locked --no-dev
 
-# 3. Install uv for all users, then the dependencies as the household user
-curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
-cd /opt/household-app
-sudo -u household uv sync --locked --no-dev
+# 3. Settings: create .env and replace every "change-me" (STORAGE_SECRET,
+#    MCP_API_KEY, ...). Add APP_PORT / MCP_PORT for non-default ports.
+cp .env.example .env
+nano .env
+chmod 600 .env   # it holds secrets: readable only by you
 
-# 4. Settings: create .env and set at least STORAGE_SECRET (and APP_PORT for a non-default port)
-sudo -u household cp .env.example .env
-sudo -u household nano .env
-sudo chmod 600 .env   # it holds secrets: readable only by the household user
+# 4. Install both units, filling in your user and this folder
+for unit in household-app household-app-mcp; do
+  sed -e "s|/home/YOUR_USER/household-app|$PWD|g" -e "s|YOUR_USER|$USER|g" \
+    deploy/$unit.service | sudo tee /etc/systemd/system/$unit.service > /dev/null
+done
 
-# 5. Install the unit, start it now, and start it on every boot
-sudo cp deploy/household-app.service /etc/systemd/system/
+# 5. Start both now and on every boot
 sudo systemctl daemon-reload
-sudo systemctl enable --now household-app
+sudo systemctl enable --now household-app household-app-mcp
 ```
 
-The app is then available at `http://<machine-ip>:<APP_PORT>` (8080 by default). Everyday commands:
+Then the web app is at `http://<machine-ip>:<APP_PORT>` and the MCP server at `http://<machine-ip>:<MCP_PORT>/sse` (with the `Authorization: Bearer <MCP_API_KEY>` header). The two ports must be different. Don't need the MCP server? Leave `household-app-mcp` out of step 5.
+
+Everyday commands:
 
 | Command | What it does |
 |---|---|
-| `sudo systemctl status household-app` | Is it running? Shows the last log lines too |
-| `journalctl -u household-app -f` | Follow the logs live (`Ctrl+C` to exit) |
-| `sudo systemctl restart household-app` | Restart, e.g. after editing `.env` |
-| `sudo systemctl disable --now household-app` | Stop it and don't start it on boot anymore |
+| `sudo systemctl status household-app household-app-mcp` | Are they running? Shows the last log lines too |
+| `journalctl -u household-app -u household-app-mcp -f` | Follow the logs live (`Ctrl+C` to exit) |
+| `sudo systemctl restart household-app household-app-mcp` | Restart, e.g. after editing `.env` |
+| `sudo systemctl disable --now household-app household-app-mcp` | Stop them and don't start them on boot anymore |
 
 To update to the latest code:
 
 ```bash
-cd /opt/household-app
-sudo -u household git pull
-sudo -u household uv sync --locked --no-dev
-sudo systemctl restart household-app
+cd ~/household-app
+git pull
+uv sync --locked --no-dev
+sudo systemctl restart household-app household-app-mcp
 ```
 
-Run the [Admin CLI](#admin-cli) as the same user, so the database file stays owned by it: `sudo -u household .venv/bin/python -m app.admin` (from `/opt/household-app`).
-
-This unit runs the web app only, not the [MCP server](#mcp-server-ai-agent-access) (Docker runs both).
+If an update changes the files in `deploy/` (or you move the repo folder), repeat steps 4 and 5. The [Admin CLI](#admin-cli) works as usual: `uv run python -m app.admin` from the repo folder.
 
 ---
 
@@ -184,6 +193,7 @@ This unit runs the web app only, not the [MCP server](#mcp-server-ai-agent-acces
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
 | `APP_PORT` | `8080` | Port the web app listens on when run without Docker (locally with `uv run python -m app.main`, or as a [systemd service](#as-a-systemd-service-linux-no-docker)). Docker ignores it: the container always uses 8080 inside, and the host port (8090) is set in `docker-compose.yml`. |
+| `MCP_PORT` | `8081` | Port of the [MCP server](#mcp-server-ai-agent-access) in SSE mode when run without Docker (the `household-app-mcp` systemd service). Must differ from `APP_PORT`. Docker ignores it: the host port (8091) is set in `docker-compose.yml`. |
 
 Set them in a `.env` file at the project root (copy `.env.example` to start). Both ways of running the app read it: Docker Compose passes the values into the container, and a local run loads the file at startup. A variable already set in your shell takes priority over `.env`.
 
@@ -213,7 +223,7 @@ It supports two transport modes, controlled by the `MCP_TRANSPORT` env var:
 | Mode | When it's used | How a client connects |
 |---|---|---|
 | `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `uv run --directory /path/to/household-app python -m app.mcp_server` |
-| `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | SSE endpoint `http://<host>:8091/sse` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
+| `sse` | Server deployments, alongside the web app — Docker (`start.sh`) or the [`household-app-mcp` systemd service](#as-a-systemd-service-linux-no-docker) | SSE endpoint `http://<host>:8091/sse` with Docker (host port from `docker-compose.yml`), or `http://<host>:<MCP_PORT>/sse` with systemd (default 8081); header `Authorization: Bearer <MCP_API_KEY>` |
 
 In `stdio` mode, `--directory` makes uv switch to the project folder before running, so it finds the project's `.venv` no matter which folder the MCP client starts in. In a client's JSON config this looks like:
 

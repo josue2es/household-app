@@ -1,24 +1,27 @@
-# systemd unit that runs the household web app as a background service on
-# a Linux machine without Docker. See "As a systemd service" in the
-# README for the full install steps.
+# systemd unit that runs the household MCP server (for AI agents) as a
+# background service on a Linux machine without Docker, next to the web app
+# in household-app.service. See "As a systemd service" in the README.
 #
 # YOUR_USER and /home/YOUR_USER/household-app are placeholders: the README's
 # install command fills them in with your user and the repo's folder.
 #
-# Settings (APP_PORT, STORAGE_SECRET, GEMINI_API_KEY, ...) come from the
-# .env file in the repo folder, which the app loads itself at startup.
+# Settings (MCP_PORT, MCP_API_KEY) come from the .env file in the repo
+# folder, which the server loads itself at startup.
 
 [Unit]
-Description=Household app (NiceGUI web app)
-After=network.target
+Description=Household app (MCP server for AI agents)
+# Start after the web app, which creates the database tables on first run.
+After=network.target household-app.service
 
 [Service]
 Type=simple
 # Runs as the user who owns the repo folder in /home.
 User=YOUR_USER
 WorkingDirectory=/home/YOUR_USER/household-app
-ExecStart=/home/YOUR_USER/household-app/.venv/bin/python -m app.main
+ExecStart=/home/YOUR_USER/household-app/.venv/bin/python -m app.mcp_server
 
+# Serve MCP over HTTP (SSE) on MCP_PORT instead of stdio, like Docker does.
+Environment=MCP_TRANSPORT=sse
 # Send print() output to the journal right away instead of buffering it.
 Environment=PYTHONUNBUFFERED=1
 
