@@ -352,7 +352,7 @@ aplica el default (la variable existe pero vacía). En `vision_service.py` usa e
 
 ## 7. Verificación y criterios de aceptación
 
-Entorno de desarrollo: `pip install -r requirements.txt && python -m app.main`
+Entorno de desarrollo: `uv run python -m app.main`
 (o `docker compose up -d --build`).
 
 1. **Arranque:** la app inicia sin errores de import; `/groceries` renderiza con el botón nuevo.

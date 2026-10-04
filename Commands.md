@@ -11,27 +11,35 @@ Every coding session starts the same way:
 
 ```powershell
 cd C:\Users\josue\Documents\household-app
-.\.venv\Scripts\Activate.ps1
 ```
 
-Your prompt should now show `(.venv) PS C:\...\household-app>`.
+That's it — no need to activate the virtual environment. Prefix commands with
+`uv run` (e.g. `uv run python -m app.main`) and uv runs them inside `.venv` for you,
+installing any missing or changed dependencies first.
 
-> If activation fails with "scripts disabled," run once:
+> Prefer an activated shell, so plain `python` uses the venv? `.\.venv\Scripts\Activate.ps1`
+> still works. If activation fails with "scripts disabled," run once:
 > `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
 
 ---
 
-## 2. Python & Project Setup
+## 2. Python & Project Setup (uv)
+
+Dependencies live in `pyproject.toml`; `uv.lock` records the exact version of every package.
+Docker builds from `uv.lock` too, so local and production always match.
 
 | Command | What it does | When to use |
 |---------|--------------|-------------|
-| `python -m venv .venv` | Create the virtual environment | Once, when setting up the project |
-| `.\.venv\Scripts\Activate.ps1` | Activate the venv (Windows PowerShell) | Every new terminal session |
-| `deactivate` | Exit the venv | When done coding |
-| `pip install -r requirements.txt` | Install all dependencies | After cloning the repo or when deps change |
-| `pip install <package>` | Install one package | When adding a new dependency |
-| `pip freeze > requirements.txt` | Save current package versions | After installing new packages (be careful!) |
-| `pip list` | Show installed packages | To check what's installed |
+| `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 \| iex"` | Install uv | Once per machine |
+| `uv sync` | Create `.venv` (Python 3.12) and install the exact versions from `uv.lock` | After cloning the repo (optional — `uv run` does it too) |
+| `uv run <command>` | Run a command inside `.venv` | Every time you run the app or a script |
+| `uv add <package>` | Add a dependency (updates `pyproject.toml` and `uv.lock`) | When adding a new dependency |
+| `uv remove <package>` | Remove a dependency | When a package is no longer needed |
+| `uv lock --upgrade-package <package>` | Upgrade one package to the newest allowed version | When you want a newer version |
+| `uv pip list` | Show installed packages | To check what's installed |
+| `uv tree` | Show which package depends on which | To see why a package is installed |
+
+> Always commit `pyproject.toml` and `uv.lock` together. Never edit `uv.lock` by hand.
 
 ---
 
@@ -39,12 +47,13 @@ Your prompt should now show `(.venv) PS C:\...\household-app>`.
 
 | Command | What it does |
 |---------|--------------|
-| `python -m app.main` | Start the NiceGUI server on http://localhost:8080 |
-| `python -m sanity_test` | Run a quick health check on the DB |
+| `uv run python -m app.main` | Start the NiceGUI server on http://localhost:8080 |
+| `uv run python -m app.admin` | Open the Admin CLI |
+| `uv run python -m sanity_test` | Run a quick health check on the DB |
 
 Stop the server with **`Ctrl+C`**.
 
-> **Important:** all `python -m` commands must be run from the project root
+> **Important:** all `uv run python -m` commands must be run from the project root
 > (`C:\Users\josue\Documents\household-app`), not from inside `app\`.
 
 ---
@@ -143,7 +152,7 @@ Always run from the project root (where `docker-compose.yml` lives).
 Used for the `STORAGE_SECRET` in `.env`:
 
 ```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+uv run python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 ---
@@ -154,7 +163,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 **Local (no Docker):**
 1. `Ctrl+C` to stop the server
-2. `python -m app.main` to restart
+2. `uv run python -m app.main` to restart
 
 **Docker:**
 1. `docker compose up -d --build`
@@ -181,7 +190,7 @@ git push
 ```powershell
 # Stop the server first!
 Remove-Item data\household.db
-python -m app.main     # restart — tables are recreated automatically
+uv run python -m app.main     # restart — tables are recreated automatically
 ```
 
 ### "I want to deploy a new version to the VPS"
@@ -200,8 +209,8 @@ docker compose up -d --build
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `ModuleNotFoundError: No module named 'X'` | Venv not activated, or wrong folder | `.\.venv\Scripts\Activate.ps1` and check `pwd` |
-| `(.venv)` missing from prompt | Venv not activated | `.\.venv\Scripts\Activate.ps1` |
+| `ModuleNotFoundError: No module named 'X'` | Ran plain `python` instead of `uv run python`, or wrong folder | Use `uv run python ...` and check `pwd` is the project root |
+| `The lockfile at uv.lock needs to be updated` (Docker build) | `pyproject.toml` changed but `uv.lock` wasn't updated or committed | `uv lock`, then commit `uv.lock` |
 | `ImportError: cannot import name 'X'` | File got truncated, or typo in name | Re-check file content, restart server |
 | Code change does nothing | Server still running old code | Stop & restart; clear `__pycache__` |
 | `error: remote origin already exists` | Remote URL already set | `git remote set-url origin <new-url>` |
@@ -219,6 +228,7 @@ docker compose up -d --build
 - **GitHub repo:** https://github.com/josue2es/household-app
 - **GitHub tokens:** https://github.com/settings/tokens
 - **NiceGUI docs:** https://nicegui.io/documentation
+- **uv docs:** https://docs.astral.sh/uv/
 - **Quasar components:** https://quasar.dev/vue-components
 - **SQLAlchemy docs:** https://docs.sqlalchemy.org/en/20/
 
