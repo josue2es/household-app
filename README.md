@@ -71,7 +71,7 @@ A shared shopping list with a smart search field.
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
 | Dependencies | [uv](https://docs.astral.sh/uv/) — declared in `pyproject.toml`, pinned in `uv.lock`; used both locally and in the Docker image |
-| Deployment | Docker + Docker Compose |
+| Deployment | Docker + Docker Compose, or a systemd service (`deploy/household-app.service`) |
 
 ---
 
@@ -123,6 +123,56 @@ Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact v
 | `uv lock --upgrade-package <package>` | Upgrade one package to the newest version allowed by `pyproject.toml` |
 | `uv tree` | Show the dependency tree |
 
+### As a systemd service (Linux, no Docker)
+
+To keep the app running in the background on a Linux machine without Docker (starting on boot and restarting if it crashes), use the unit file in `deploy/household-app.service`. It runs the app as a dedicated `household` user from `/opt/household-app`; if you use another folder, edit the paths in the unit file.
+
+```bash
+# 1. Create a system user to run the app (no login shell)
+sudo useradd --system --create-home --home-dir /var/lib/household-app --shell /usr/sbin/nologin household
+
+# 2. Put the code in /opt/household-app, owned by that user
+sudo git clone https://github.com/josue2es/household-app.git /opt/household-app
+sudo chown -R household:household /opt/household-app
+
+# 3. Install uv for all users, then the dependencies as the household user
+curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+cd /opt/household-app
+sudo -u household uv sync --locked --no-dev
+
+# 4. Settings: create .env and set at least STORAGE_SECRET (and APP_PORT for a non-default port)
+sudo -u household cp .env.example .env
+sudo -u household nano .env
+sudo chmod 600 .env   # it holds secrets: readable only by the household user
+
+# 5. Install the unit, start it now, and start it on every boot
+sudo cp deploy/household-app.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now household-app
+```
+
+The app is then available at `http://<machine-ip>:<APP_PORT>` (8080 by default). Everyday commands:
+
+| Command | What it does |
+|---|---|
+| `sudo systemctl status household-app` | Is it running? Shows the last log lines too |
+| `journalctl -u household-app -f` | Follow the logs live (`Ctrl+C` to exit) |
+| `sudo systemctl restart household-app` | Restart, e.g. after editing `.env` |
+| `sudo systemctl disable --now household-app` | Stop it and don't start it on boot anymore |
+
+To update to the latest code:
+
+```bash
+cd /opt/household-app
+sudo -u household git pull
+sudo -u household uv sync --locked --no-dev
+sudo systemctl restart household-app
+```
+
+Run the [Admin CLI](#admin-cli) as the same user, so the database file stays owned by it: `sudo -u household .venv/bin/python -m app.admin` (from `/opt/household-app`).
+
+This unit runs the web app only, not the [MCP server](#mcp-server-ai-agent-access) (Docker runs both).
+
 ---
 
 ## Configuration
@@ -133,7 +183,7 @@ Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact v
 | `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated; it then only accepts requests addressed to `localhost`, so remote clients can't connect. |
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
-| `APP_PORT` | `8080` | Port the web app listens on when run locally (`uv run python -m app.main`). Docker ignores it: the container always uses 8080 inside, and the host port (8090) is set in `docker-compose.yml`. |
+| `APP_PORT` | `8080` | Port the web app listens on when run without Docker (locally with `uv run python -m app.main`, or as a [systemd service](#as-a-systemd-service-linux-no-docker)). Docker ignores it: the container always uses 8080 inside, and the host port (8090) is set in `docker-compose.yml`. |
 
 Set them in a `.env` file at the project root (copy `.env.example` to start). Both ways of running the app read it: Docker Compose passes the values into the container, and a local run loads the file at startup. A variable already set in your shell takes priority over `.env`.
 

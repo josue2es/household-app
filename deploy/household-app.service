@@ -1,0 +1,42 @@
+# systemd unit that runs the household web app as a background service on
+# a Linux machine without Docker. See "Running as a systemd service" in the
+# README for the full install steps.
+#
+# Install:  sudo cp deploy/household-app.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now household-app
+#
+# Settings (APP_PORT, STORAGE_SECRET, GEMINI_API_KEY, ...) come from
+# /opt/household-app/.env, which the app loads itself at startup.
+
+[Unit]
+Description=Household app (NiceGUI web app)
+After=network.target
+
+[Service]
+Type=simple
+# Dedicated user without a login shell (created in the install steps).
+User=household
+Group=household
+
+# If you cloned the repo somewhere else, change both paths below.
+WorkingDirectory=/opt/household-app
+ExecStart=/opt/household-app/.venv/bin/python -m app.main
+
+# Send print() output to the journal right away instead of buffering it.
+Environment=PYTHONUNBUFFERED=1
+
+# Restart after a crash (not after `systemctl stop`), waiting 5 s between tries.
+Restart=on-failure
+RestartSec=5
+
+# Basic hardening: no privilege escalation, read-only /usr, /boot and /etc,
+# a private /tmp, and no access to /home or /root. If you put the app
+# under /home, remove ProtectHome.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
