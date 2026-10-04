@@ -216,7 +216,7 @@ docker compose up -d --build
 | `error: remote origin already exists` | Remote URL already set | `git remote set-url origin <new-url>` |
 | `git push` does nothing visible | Auth needed | Use Personal Access Token, not password |
 | Tasks don't show as completed | Timezone mismatch | Already fixed — but check `LOCAL_TZ` in code |
-| Docker container won't start | Port 8080 in use | `docker ps`, stop other container, or change port |
+| Docker container won't start | Host port 8090 (or 8091) in use | `docker ps`, stop other container, or change the host port in `docker-compose.yml` |
 | `DetachedInstanceError` from SQLAlchemy | Used a model object after session closed | Copy data to plain dict/tuple before exit |
 
 ---

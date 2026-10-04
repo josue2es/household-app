@@ -90,7 +90,7 @@ docker compose logs -f
 docker compose down
 ```
 
-The app will be available at **http://localhost:8080**.
+The app will be available at **http://localhost:8090** (`docker-compose.yml` maps host port 8090 to the container's port 8080).
 
 The SQLite database is stored in `./data/household.db` on the host (mounted into the container). It persists across container restarts and rebuilds.
 
