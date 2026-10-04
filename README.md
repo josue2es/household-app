@@ -182,6 +182,49 @@ sudo systemctl restart household-app household-app-mcp
 
 If an update changes the files in `deploy/` (or you move the repo folder), repeat steps 4 and 5. The [Admin CLI](#admin-cli) works as usual: `uv run python -m app.admin` from the repo folder.
 
+### HTTPS with Caddy (and Cloudflare)
+
+Both servers speak plain HTTP. To serve them over HTTPS, put [Caddy](https://caddyserver.com/) in front: it gets and renews the certificate for your domain automatically. One hostname is enough for both, because the MCP server only uses the paths `/sse` and `/messages/`, which the web app never uses.
+
+1. In `.env`, make both apps listen only on this machine, so they can't be reached directly over plain HTTP (bypassing Caddy), and set the MCP token:
+
+   ```
+   APP_HOST=127.0.0.1
+   MCP_HOST=127.0.0.1
+   MCP_API_KEY=some-long-random-string
+   ```
+
+   Then `sudo systemctl restart household-app household-app-mcp`.
+
+2. Add a site block to your Caddyfile (usually `/etc/caddy/Caddyfile`), using your domain and your `APP_PORT` / `MCP_PORT`:
+
+   ```
+   hogar.example.com {
+   	# MCP server: the SSE stream and the endpoint clients POST messages to
+   	@mcp path /sse /messages/*
+   	handle @mcp {
+   		reverse_proxy localhost:8081
+   	}
+
+   	# Everything else: the web app
+   	handle {
+   		reverse_proxy localhost:8080
+   	}
+   }
+   ```
+
+   Then `sudo systemctl reload caddy`.
+
+3. The web app is at `https://hogar.example.com`, and MCP clients connect to `https://hogar.example.com/sse` with the `Authorization: Bearer <MCP_API_KEY>` header.
+
+Keep `/sse` and `/messages/*` at the root of the domain: the MCP server tells clients to send their messages to `/messages/`, so serving it under a prefix such as `/mcp/sse` breaks it. The server pings the stream every 15 seconds, which keeps it open through proxies with idle timeouts (Cloudflare's is 100 seconds).
+
+**With Cloudflare's proxy** (orange cloud) in front of Caddy:
+- A separate hostname for the MCP server is optional. If you want one, keep it one level below your domain (`hogar-mcp.example.com`, not `mcp.hogar.example.com`): Cloudflare's free certificate only covers `*.example.com`.
+- MCP clients aren't browsers, so Cloudflare's bot protection (Bot Fight Mode, challenges) can block them. If a client gets a 403 or an HTML challenge page, add a WAF custom rule that skips those protections for the paths `/sse` and `/messages/`.
+
+**With Docker** instead of systemd, the containers already listen on `0.0.0.0` inside, so restrict the published ports instead: in `docker-compose.yml`, change them to `"127.0.0.1:8090:8080"` and `"127.0.0.1:8091:8081"`, and point Caddy at `localhost:8090` and `localhost:8091`. (Docker's published ports bypass `ufw`, so a firewall rule alone isn't enough.)
+
 ---
 
 ## Configuration
@@ -192,7 +235,9 @@ If an update changes the files in `deploy/` (or you move the repo folder), repea
 | `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated; it then only accepts requests addressed to `localhost`, so remote clients can't connect. |
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
+| `APP_HOST` | `0.0.0.0` | Network address the web app listens on when run without Docker. `0.0.0.0` accepts connections from other devices (e.g. your phone on the same Wi-Fi); `127.0.0.1` accepts only this machine, which is what you want [behind Caddy](#https-with-caddy-and-cloudflare). Docker ignores it. |
 | `APP_PORT` | `8080` | Port the web app listens on when run without Docker (locally with `uv run python -m app.main`, or as a [systemd service](#as-a-systemd-service-linux-no-docker)). Docker ignores it: the container always uses 8080 inside, and the host port (8090) is set in `docker-compose.yml`. |
+| `MCP_HOST` | `0.0.0.0` | Network address of the MCP server in SSE mode when run without Docker. Set `127.0.0.1` [behind Caddy](#https-with-caddy-and-cloudflare). Docker ignores it. |
 | `MCP_PORT` | `8081` | Port of the [MCP server](#mcp-server-ai-agent-access) in SSE mode when run without Docker (the `household-app-mcp` systemd service). Must differ from `APP_PORT`. Docker ignores it: the host port (8091) is set in `docker-compose.yml`. |
 
 Set them in a `.env` file at the project root (copy `.env.example` to start). Both ways of running the app read it: Docker Compose passes the values into the container, and a local run loads the file at startup. A variable already set in your shell takes priority over `.env`.
@@ -257,6 +302,8 @@ In `stdio` mode, `--directory` makes uv switch to the project folder before runn
 1. Set `MCP_API_KEY` in `.env` (see [Configuration](#configuration)).
 2. `docker compose up -d --build` — this starts the SSE server on container port 8081, published as host port **8091**.
 3. Configure your MCP client with the SSE URL `http://<vps-host>:8091/sse` and the token as the `Authorization: Bearer` header.
+
+That URL is plain HTTP, so the token travels unencrypted. On a server reachable from the internet, serve it over HTTPS instead: see [HTTPS with Caddy](#https-with-caddy-and-cloudflare).
 
 If you don't use an MCP client, this server just runs in the background and can be ignored.
 

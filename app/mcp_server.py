@@ -347,10 +347,11 @@ if __name__ == "__main__":
         import secrets
         import uvicorn
         from dotenv import load_dotenv
+        from mcp.server.transport_security import TransportSecuritySettings
         from starlette.datastructures import Headers
         from starlette.responses import PlainTextResponse
 
-        # Load MCP_PORT, MCP_HOST and MCP_API_KEY from the project's .env file,
+        # Load MCP_HOST, MCP_PORT and MCP_API_KEY from the project's .env file,
         # if there is one. Variables already set in the environment win, so
         # Docker's settings are never overridden. (stdio mode skips this: the
         # MCP client that launches the server decides everything there.)
@@ -386,12 +387,19 @@ if __name__ == "__main__":
                 await self.app(scope, receive, send)
 
         # Get the raw Starlette app from MCPServer and wrap it with auth.
-        # With host "127.0.0.1" the SDK turns on DNS-rebinding protection,
-        # which only accepts requests addressed to localhost, so clients
-        # connecting through the VPS's IP or domain get "421 Invalid Host
-        # header". Pass the real bind host (turning that off) only when the
-        # bearer token protects the server; without one, stay localhost-only.
-        app = BearerAuthMiddleware(mcp.sse_app(host=host if api_key else "127.0.0.1"))
+        # The SDK's DNS-rebinding protection only accepts requests addressed
+        # to localhost, so clients connecting through a domain or IP (directly
+        # or via a reverse proxy like Caddy) get "421 Invalid Host header".
+        # Turn it off only when the bearer token protects the server; without
+        # a token, stay localhost-only. This is independent of MCP_HOST, which
+        # only picks the network interface to listen on.
+        if api_key:
+            sse_app = mcp.sse_app(
+                transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+            )
+        else:
+            sse_app = mcp.sse_app()  # default: DNS-rebinding protection, localhost only
+        app = BearerAuthMiddleware(sse_app)
         print(f"Starting MCP server (SSE) on {host}:{port}", flush=True)
         uvicorn.run(app, host=host, port=port)
 

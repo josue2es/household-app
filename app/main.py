@@ -73,12 +73,15 @@ init_db()  # Create tables if missing
 # `storage_secret` is required for app.storage.user. In production set via env var.
 STORAGE_SECRET = os.environ.get("STORAGE_SECRET", "dev-secret-change-me")
 
-# Port the web app listens on. Set APP_PORT in .env to use another one locally.
-# Docker always uses 8080 inside the container; its host port is in docker-compose.yml.
+# Address and port the web app listens on. Set them in .env to change them
+# outside Docker: APP_HOST=127.0.0.1 accepts only connections from this machine
+# (e.g. a reverse proxy like Caddy). Docker always uses 0.0.0.0:8080 inside the
+# container; its host port is in docker-compose.yml.
+APP_HOST = os.environ.get("APP_HOST") or "0.0.0.0"
 APP_PORT = int(os.environ.get("APP_PORT") or 8080)
 
 ui.run(
-    host="0.0.0.0",
+    host=APP_HOST,
     port=APP_PORT,
     title="Household",
     favicon="🏠",
