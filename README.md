@@ -108,6 +108,8 @@ uv sync
 uv run python -m app.main
 ```
 
+The app will be available at **http://localhost:8080**. To use a different port, set `APP_PORT` in `.env` (see [Configuration](#configuration)).
+
 `uv run` executes the command inside the project's `.venv`, so there is no need to activate the virtual environment first. It also syncs `.venv` with `uv.lock` before running, so after a `git pull` that changed dependencies you don't need to remember to run `uv sync`. Run all commands from the project root.
 
 #### Managing dependencies
@@ -131,13 +133,15 @@ Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact v
 | `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated; it then only accepts requests addressed to `localhost`, so remote clients can't connect. |
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
+| `APP_PORT` | `8080` | Port the web app listens on when run locally (`uv run python -m app.main`). Docker ignores it: the container always uses 8080 inside, and the host port (8090) is set in `docker-compose.yml`. |
 
-Set it in a `.env` file at the project root:
+Set them in a `.env` file at the project root (copy `.env.example` to start). Both ways of running the app read it: Docker Compose passes the values into the container, and a local run loads the file at startup. A variable already set in your shell takes priority over `.env`.
 
 ```
 STORAGE_SECRET=some-long-random-string
 MCP_API_KEY=some-long-random-string
 GEMINI_API_KEY=your-gemini-api-key
+APP_PORT=8085
 ```
 
 ### Timezone

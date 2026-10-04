@@ -2,11 +2,15 @@
 Application entry point.
 
 Run with:
-    python -m app.main
+    uv run python -m app.main
 
-Then visit http://localhost:8080 in a browser.
+Then visit http://localhost:8080 in a browser (or the port set by
+APP_PORT in .env).
 """
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 from nicegui import ui, app as nicegui_app
 
 from app.database import init_db
@@ -59,14 +63,23 @@ def groceries():
 
 # ---------- Bootstrap ----------
 
+# Load settings from the .env file at the project root, if there is one.
+# Variables already set in the environment win over .env, so Docker's
+# settings (passed in by docker-compose.yml) are never overridden.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 init_db()  # Create tables if missing
 
 # `storage_secret` is required for app.storage.user. In production set via env var.
 STORAGE_SECRET = os.environ.get("STORAGE_SECRET", "dev-secret-change-me")
 
+# Port the web app listens on. Set APP_PORT in .env to use another one locally.
+# Docker always uses 8080 inside the container; its host port is in docker-compose.yml.
+APP_PORT = int(os.environ.get("APP_PORT") or 8080)
+
 ui.run(
     host="0.0.0.0",
-    port=8080,
+    port=APP_PORT,
     title="Household",
     favicon="🏠",
     storage_secret=STORAGE_SECRET,
