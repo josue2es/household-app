@@ -344,9 +344,10 @@ if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
 
     if transport == "sse":
+        import secrets
         import uvicorn
         from dotenv import load_dotenv
-        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.datastructures import Headers
         from starlette.responses import PlainTextResponse
 
         # Load MCP_PORT, MCP_HOST and MCP_API_KEY from the project's .env file,
@@ -363,14 +364,26 @@ if __name__ == "__main__":
             print("WARNING: MCP_API_KEY is not set — server is unauthenticated and "
                   "only accepts requests addressed to localhost", flush=True)
 
-        class BearerAuthMiddleware(BaseHTTPMiddleware):
-            """Reject requests that don't carry the correct bearer token."""
-            async def dispatch(self, request, call_next):
-                if api_key:
-                    auth = request.headers.get("Authorization", "")
-                    if auth != f"Bearer {api_key}":
-                        return PlainTextResponse("Unauthorized", status_code=401)
-                return await call_next(request)
+        class BearerAuthMiddleware:
+            """
+            Reject requests that don't carry the correct bearer token.
+
+            Plain ASGI middleware on purpose: Starlette's BaseHTTPMiddleware
+            mishandles streaming (SSE) responses and logs a traceback every
+            time a client disconnects.
+            """
+            def __init__(self, app):
+                self.app = app
+
+            async def __call__(self, scope, receive, send):
+                if api_key and scope["type"] == "http":
+                    auth = Headers(scope=scope).get("Authorization", "")
+                    # compare_digest takes the same time whether or not the
+                    # token matches, so response timing can't leak it.
+                    if not secrets.compare_digest(auth.encode(), f"Bearer {api_key}".encode()):
+                        await PlainTextResponse("Unauthorized", status_code=401)(scope, receive, send)
+                        return
+                await self.app(scope, receive, send)
 
         # Get the raw Starlette app from MCPServer and wrap it with auth.
         # With host "127.0.0.1" the SDK turns on DNS-rebinding protection,
