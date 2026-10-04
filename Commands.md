@@ -223,7 +223,7 @@ docker compose up -d --build
 
 ## 12. URLs to Remember
 
-- **App locally:** http://localhost:8080
+- **App locally:** http://localhost:8080 (or the `APP_PORT` set in `.env`)
 - **App on phone (same WiFi):** http://YOUR-PC-IP:8080 (find with `ipconfig`)
 - **GitHub repo:** https://github.com/josue2es/household-app
 - **GitHub tokens:** https://github.com/settings/tokens

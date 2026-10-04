@@ -344,34 +344,62 @@ if __name__ == "__main__":
     transport = os.getenv("MCP_TRANSPORT", "stdio")
 
     if transport == "sse":
+        import secrets
         import uvicorn
-        from starlette.middleware.base import BaseHTTPMiddleware
+        from dotenv import load_dotenv
+        from mcp.server.transport_security import TransportSecuritySettings
+        from starlette.datastructures import Headers
         from starlette.responses import PlainTextResponse
 
-        host    = os.getenv("MCP_HOST", "0.0.0.0")
-        port    = int(os.getenv("MCP_PORT", "8081"))
+        # Load MCP_HOST, MCP_PORT and MCP_API_KEY from the project's .env file,
+        # if there is one. Variables already set in the environment win, so
+        # Docker's settings are never overridden. (stdio mode skips this: the
+        # MCP client that launches the server decides everything there.)
+        load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+        host    = os.getenv("MCP_HOST") or "0.0.0.0"
+        port    = int(os.getenv("MCP_PORT") or 8081)
         api_key = os.getenv("MCP_API_KEY", "")
 
         if not api_key:
             print("WARNING: MCP_API_KEY is not set — server is unauthenticated and "
                   "only accepts requests addressed to localhost", flush=True)
 
-        class BearerAuthMiddleware(BaseHTTPMiddleware):
-            """Reject requests that don't carry the correct bearer token."""
-            async def dispatch(self, request, call_next):
-                if api_key:
-                    auth = request.headers.get("Authorization", "")
-                    if auth != f"Bearer {api_key}":
-                        return PlainTextResponse("Unauthorized", status_code=401)
-                return await call_next(request)
+        class BearerAuthMiddleware:
+            """
+            Reject requests that don't carry the correct bearer token.
+
+            Plain ASGI middleware on purpose: Starlette's BaseHTTPMiddleware
+            mishandles streaming (SSE) responses and logs a traceback every
+            time a client disconnects.
+            """
+            def __init__(self, app):
+                self.app = app
+
+            async def __call__(self, scope, receive, send):
+                if api_key and scope["type"] == "http":
+                    auth = Headers(scope=scope).get("Authorization", "")
+                    # compare_digest takes the same time whether or not the
+                    # token matches, so response timing can't leak it.
+                    if not secrets.compare_digest(auth.encode(), f"Bearer {api_key}".encode()):
+                        await PlainTextResponse("Unauthorized", status_code=401)(scope, receive, send)
+                        return
+                await self.app(scope, receive, send)
 
         # Get the raw Starlette app from MCPServer and wrap it with auth.
-        # With host "127.0.0.1" the SDK turns on DNS-rebinding protection,
-        # which only accepts requests addressed to localhost, so clients
-        # connecting through the VPS's IP or domain get "421 Invalid Host
-        # header". Pass the real bind host (turning that off) only when the
-        # bearer token protects the server; without one, stay localhost-only.
-        app = BearerAuthMiddleware(mcp.sse_app(host=host if api_key else "127.0.0.1"))
+        # The SDK's DNS-rebinding protection only accepts requests addressed
+        # to localhost, so clients connecting through a domain or IP (directly
+        # or via a reverse proxy like Caddy) get "421 Invalid Host header".
+        # Turn it off only when the bearer token protects the server; without
+        # a token, stay localhost-only. This is independent of MCP_HOST, which
+        # only picks the network interface to listen on.
+        if api_key:
+            sse_app = mcp.sse_app(
+                transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+            )
+        else:
+            sse_app = mcp.sse_app()  # default: DNS-rebinding protection, localhost only
+        app = BearerAuthMiddleware(sse_app)
         print(f"Starting MCP server (SSE) on {host}:{port}", flush=True)
         uvicorn.run(app, host=host, port=port)
 
