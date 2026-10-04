@@ -1,0 +1,13 @@
+[project]
+name = "household-app"
+version = "0.1.0"
+description = "Mobile-first web app for managing household chores and the grocery shopping list."
+requires-python = ">=3.12"
+dependencies = [
+    "nicegui==2.7.0",
+    "sqlalchemy==2.0.36",
+    "bcrypt==4.2.1",
+    # mcp 2.x removed mcp.server.fastmcp, which app/mcp_server.py uses.
+    "mcp[cli]>=1.0.0,<2",
+    "httpx==0.28.1",
+]

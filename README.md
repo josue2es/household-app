@@ -70,7 +70,7 @@ A shared shopping list with a smart search field.
 | Database | SQLite (single file at `data/household.db`) |
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
-| Local tooling | [uv](https://docs.astral.sh/uv/) (Python version, virtual environment, dependencies) |
+| Dependencies | [uv](https://docs.astral.sh/uv/) — declared in `pyproject.toml`, pinned in `uv.lock`; used both locally and in the Docker image |
 | Deployment | Docker + Docker Compose |
 
 ---
@@ -99,18 +99,27 @@ The SQLite database is stored in `./data/household.db` on the host (mounted into
 Local development uses [uv](https://docs.astral.sh/uv/) to manage the Python version, the virtual environment, and dependencies. Install it once by following the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
-# One-time setup: create .venv with Python 3.12 (same version as the Docker image).
+# Create .venv with Python 3.12 (from .python-version, same as the Docker image)
+# and install the exact dependency versions recorded in uv.lock.
 # uv downloads Python 3.12 automatically if it isn't installed.
-uv venv --python 3.12
-
-# Install dependencies (re-run whenever requirements.txt changes)
-uv pip install -r requirements.txt
+uv sync
 
 # Start the app
 uv run python -m app.main
 ```
 
-`uv run` executes the command inside the project's `.venv`, so there is no need to activate the virtual environment first. Run all commands from the project root.
+`uv run` executes the command inside the project's `.venv`, so there is no need to activate the virtual environment first. It also syncs `.venv` with `uv.lock` before running, so after a `git pull` that changed dependencies you don't need to remember to run `uv sync`. Run all commands from the project root.
+
+#### Managing dependencies
+
+Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact version of every package (including sub-dependencies) so that local installs and the Docker image are identical. Don't edit `uv.lock` by hand; commit both files whenever they change.
+
+| Command | What it does |
+|---|---|
+| `uv add <package>` | Add a dependency to `pyproject.toml`, update `uv.lock`, and install it |
+| `uv remove <package>` | Remove a dependency |
+| `uv lock --upgrade-package <package>` | Upgrade one package to the newest version allowed by `pyproject.toml` |
+| `uv tree` | Show the dependency tree |
 
 ---
 
