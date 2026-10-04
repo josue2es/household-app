@@ -13,6 +13,11 @@ import bcrypt
 
 from app.database import Base
 
+# bcrypt only uses the first 72 bytes of a password. bcrypt 5 raises
+# ValueError for longer input instead of silently ignoring the rest.
+# (Accented letters like "ñ" take 2 bytes in UTF-8.)
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
 
 # ============================================================
 # USERS
@@ -32,14 +37,20 @@ class User(Base):
 
     # --- Password helpers (encapsulating bcrypt here keeps the rest of the code clean) ---
     def set_password(self, plain_password: str) -> None:
-        """Hash and store the password. Never store the plain text."""
+        """
+        Hash and store the password. Never store the plain text.
+        Raises ValueError if it is longer than BCRYPT_MAX_PASSWORD_BYTES.
+        """
         salt = bcrypt.gensalt()
         self.password_hash = bcrypt.hashpw(plain_password.encode("utf-8"), salt).decode("utf-8")
 
     def check_password(self, plain_password: str) -> bool:
         """Verify a login attempt against the stored hash."""
+        # Truncate to bcrypt's limit, as bcrypt < 5 did silently: hashes of
+        # longer passwords created back then keep working, and an over-long
+        # login attempt just fails instead of raising ValueError.
         return bcrypt.checkpw(
-            plain_password.encode("utf-8"),
+            plain_password.encode("utf-8")[:BCRYPT_MAX_PASSWORD_BYTES],
             self.password_hash.encode("utf-8"),
         )
 

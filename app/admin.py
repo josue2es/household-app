@@ -15,7 +15,7 @@ from getpass import getpass
 from pathlib import Path
 from sqlalchemy import func
 from app.database import get_db
-from app.models import User, GroceryItem, Task, ActiveShoppingItem
+from app.models import User, GroceryItem, Task, ActiveShoppingItem, BCRYPT_MAX_PASSWORD_BYTES
 
 
 # Parse command-line flags once at startup.
@@ -899,6 +899,9 @@ def pick_password() -> str | None:
         return None
     if len(pw1) < 6:
         print("Password too short (min 6 chars).")
+        return None
+    if len(pw1.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        print(f"Password too long (max {BCRYPT_MAX_PASSWORD_BYTES} bytes; letters like ñ or á count as 2).")
         return None
 
     pw2 = getpass("Repeat password: ")

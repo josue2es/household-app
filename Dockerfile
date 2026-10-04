@@ -10,11 +10,22 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # ---- Step 3: Install Python dependencies ----
-# We copy requirements.txt first (before all the code) so Docker can
-# cache this expensive step. If only your code changes, Docker reuses
-# the cached pip-install layer instead of reinstalling everything.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# uv installs the exact versions recorded in uv.lock. We copy its single
+# binary from the official uv image instead of installing it with pip.
+COPY --from=ghcr.io/astral-sh/uv:0.8.17 /uv /uvx /bin/
+
+# We copy pyproject.toml and uv.lock first (before all the code) so Docker
+# can cache this expensive step. If only your code changes, Docker reuses
+# the cached install layer instead of reinstalling everything.
+#   --locked   fail if uv.lock is out of date instead of silently re-resolving
+#   --no-dev   skip development-only dependencies
+#   --no-cache don't keep uv's download cache in the image (keeps it small)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-cache
+
+# uv installed everything into /app/.venv. Putting it first on PATH means
+# `python` (in start.sh and `docker compose exec`) runs the venv's Python.
+ENV PATH="/app/.venv/bin:$PATH"
 
 # ---- Step 4: Copy your application code ----
 # This copies the `app/` folder into /app/app inside the container.

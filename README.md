@@ -65,11 +65,12 @@ A shared shopping list with a smart search field.
 
 | Layer | Technology |
 |---|---|
-| UI framework | [NiceGUI](https://nicegui.io/) 2.7.0 (Python, renders Quasar/Vue in the browser) |
-| ORM | SQLAlchemy 2.0 |
+| UI framework | [NiceGUI](https://nicegui.io/) 3 (Python, renders Quasar/Vue in the browser) |
+| ORM | SQLAlchemy 2.1 |
 | Database | SQLite (single file at `data/household.db`) |
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
+| Dependencies | [uv](https://docs.astral.sh/uv/) — declared in `pyproject.toml`, pinned in `uv.lock`; used both locally and in the Docker image |
 | Deployment | Docker + Docker Compose |
 
 ---
@@ -89,16 +90,36 @@ docker compose logs -f
 docker compose down
 ```
 
-The app will be available at **http://localhost:8080**.
+The app will be available at **http://localhost:8090** (`docker-compose.yml` maps host port 8090 to the container's port 8080).
 
 The SQLite database is stored in `./data/household.db` on the host (mounted into the container). It persists across container restarts and rebuilds.
 
 ### Locally (no Docker)
 
+Local development uses [uv](https://docs.astral.sh/uv/) to manage the Python version, the virtual environment, and dependencies. Install it once by following the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
 ```bash
-pip install -r requirements.txt
-python -m app.main
+# Create .venv with Python 3.12 (from .python-version, same as the Docker image)
+# and install the exact dependency versions recorded in uv.lock.
+# uv downloads Python 3.12 automatically if it isn't installed.
+uv sync
+
+# Start the app
+uv run python -m app.main
 ```
+
+`uv run` executes the command inside the project's `.venv`, so there is no need to activate the virtual environment first. It also syncs `.venv` with `uv.lock` before running, so after a `git pull` that changed dependencies you don't need to remember to run `uv sync`. Run all commands from the project root.
+
+#### Managing dependencies
+
+Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact version of every package (including sub-dependencies) so that local installs and the Docker image are identical. Don't edit `uv.lock` by hand; commit both files whenever they change.
+
+| Command | What it does |
+|---|---|
+| `uv add <package>` | Add a dependency to `pyproject.toml`, update `uv.lock`, and install it |
+| `uv remove <package>` | Remove a dependency |
+| `uv lock --upgrade-package <package>` | Upgrade one package to the newest version allowed by `pyproject.toml` |
+| `uv tree` | Show the dependency tree |
 
 ---
 
@@ -107,7 +128,7 @@ python -m app.main
 | Environment variable | Default | Description |
 |---|---|---|
 | `STORAGE_SECRET` | `dev-secret-change-me` | Secret used to sign NiceGUI browser sessions. **Change this in production.** |
-| `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated (not recommended on a VPS). |
+| `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated; it then only accepts requests addressed to `localhost`, so remote clients can't connect. |
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
 
@@ -137,8 +158,21 @@ It supports two transport modes, controlled by the `MCP_TRANSPORT` env var:
 
 | Mode | When it's used | How a client connects |
 |---|---|---|
-| `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `python -m app.mcp_server`, run from the project root |
-| `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | HTTP to `http://<host>:8091` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
+| `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `uv run --directory /path/to/household-app python -m app.mcp_server` |
+| `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | SSE endpoint `http://<host>:8091/sse` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
+
+In `stdio` mode, `--directory` makes uv switch to the project folder before running, so it finds the project's `.venv` no matter which folder the MCP client starts in. In a client's JSON config this looks like:
+
+```json
+{
+  "mcpServers": {
+    "household-app": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/household-app", "python", "-m", "app.mcp_server"]
+    }
+  }
+}
+```
 
 ### Available tools
 
@@ -158,7 +192,7 @@ It supports two transport modes, controlled by the `MCP_TRANSPORT` env var:
 
 1. Set `MCP_API_KEY` in `.env` (see [Configuration](#configuration)).
 2. `docker compose up -d --build` — this starts the SSE server on container port 8081, published as host port **8091**.
-3. Configure your MCP client with the URL `http://<vps-host>:8091` and the token as the `Authorization: Bearer` header.
+3. Configure your MCP client with the SSE URL `http://<vps-host>:8091/sse` and the token as the `Authorization: Bearer` header.
 
 If you don't use an MCP client, this server just runs in the background and can be ignored.
 
@@ -175,8 +209,8 @@ docker compose exec household-app python -m app.admin
 Or locally:
 
 ```bash
-python -m app.admin           # skip mode: existing records are left unchanged
-python -m app.admin --update  # update mode: existing records are overwritten on import
+uv run python -m app.admin           # skip mode: existing records are left unchanged
+uv run python -m app.admin --update  # update mode: existing records are overwritten on import
 ```
 
 ### Main menu
@@ -198,7 +232,7 @@ New users must be created through the CLI (there is no sign-up page):
 1. Manage users → 2. Create new user
 ```
 
-You will be prompted for a name, an avatar color, and a password (minimum 6 characters, entered twice for confirmation).
+You will be prompted for a name, an avatar color, and a password (minimum 6 characters and maximum 72 bytes — accented letters like ñ count as 2 — entered twice for confirmation).
 
 #### User submenu options
 
@@ -336,11 +370,11 @@ To reset the database (start fresh):
 ```powershell
 # Windows
 Remove-Item data\household.db
-python -m app.main  # tables are recreated automatically on startup
+uv run python -m app.main  # tables are recreated automatically on startup
 ```
 
 ```bash
 # Linux / macOS
 rm data/household.db
-python -m app.main
+uv run python -m app.main
 ```
