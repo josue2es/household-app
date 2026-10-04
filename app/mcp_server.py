@@ -5,7 +5,7 @@ Exposes task and grocery tools so AI agents can read and update the
 app without going through the web UI.
 
 Run locally:
-    python -m app.mcp_server
+    uv run python -m app.mcp_server
 
 The server uses stdio transport by default, which is what MCP clients
 (Claude Desktop, Claude Code, etc.) expect when they launch it as a
@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from datetime import date, datetime, timezone
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from app.database import get_db
 from app.models import User, Task
@@ -38,7 +38,7 @@ from app.services.grocery_service import (
     remove_from_active_list,
 )
 
-mcp = FastMCP("household-app")
+mcp = MCPServer("household-app")
 
 
 # ============================================================
@@ -353,7 +353,8 @@ if __name__ == "__main__":
         api_key = os.getenv("MCP_API_KEY", "")
 
         if not api_key:
-            print("WARNING: MCP_API_KEY is not set — server is unauthenticated", flush=True)
+            print("WARNING: MCP_API_KEY is not set — server is unauthenticated and "
+                  "only accepts requests addressed to localhost", flush=True)
 
         class BearerAuthMiddleware(BaseHTTPMiddleware):
             """Reject requests that don't carry the correct bearer token."""
@@ -364,8 +365,13 @@ if __name__ == "__main__":
                         return PlainTextResponse("Unauthorized", status_code=401)
                 return await call_next(request)
 
-        # Get the raw Starlette app from FastMCP and wrap it with auth.
-        app = BearerAuthMiddleware(mcp.sse_app())
+        # Get the raw Starlette app from MCPServer and wrap it with auth.
+        # With host "127.0.0.1" the SDK turns on DNS-rebinding protection,
+        # which only accepts requests addressed to localhost, so clients
+        # connecting through the VPS's IP or domain get "421 Invalid Host
+        # header". Pass the real bind host (turning that off) only when the
+        # bearer token protects the server; without one, stay localhost-only.
+        app = BearerAuthMiddleware(mcp.sse_app(host=host if api_key else "127.0.0.1"))
         print(f"Starting MCP server (SSE) on {host}:{port}", flush=True)
         uvicorn.run(app, host=host, port=port)
 

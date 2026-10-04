@@ -65,8 +65,8 @@ A shared shopping list with a smart search field.
 
 | Layer | Technology |
 |---|---|
-| UI framework | [NiceGUI](https://nicegui.io/) 2.7.0 (Python, renders Quasar/Vue in the browser) |
-| ORM | SQLAlchemy 2.0 |
+| UI framework | [NiceGUI](https://nicegui.io/) 3 (Python, renders Quasar/Vue in the browser) |
+| ORM | SQLAlchemy 2.1 |
 | Database | SQLite (single file at `data/household.db`) |
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
@@ -128,7 +128,7 @@ Dependencies are declared in `pyproject.toml`, and `uv.lock` records the exact v
 | Environment variable | Default | Description |
 |---|---|---|
 | `STORAGE_SECRET` | `dev-secret-change-me` | Secret used to sign NiceGUI browser sessions. **Change this in production.** |
-| `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated (not recommended on a VPS). |
+| `MCP_API_KEY` | *(none)* | Bearer token required to connect to the [MCP server](#mcp-server-ai-agent-access) when it runs in SSE mode (Docker/VPS). Leave unset to run it unauthenticated; it then only accepts requests addressed to `localhost`, so remote clients can't connect. |
 | `GEMINI_API_KEY` | *(none)* | Google Gemini API key used for the "Identificar con foto" grocery feature. Get one at [aistudio.google.com](https://aistudio.google.com/). If unset, the photo button is disabled. |
 | `GEMINI_MODEL` | `gemini-3-pro-preview` | Gemini model used to identify products from photos. |
 
@@ -159,7 +159,7 @@ It supports two transport modes, controlled by the `MCP_TRANSPORT` env var:
 | Mode | When it's used | How a client connects |
 |---|---|---|
 | `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `uv run --directory /path/to/household-app python -m app.mcp_server` |
-| `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | HTTP to `http://<host>:8091` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
+| `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | SSE endpoint `http://<host>:8091/sse` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
 
 In `stdio` mode, `--directory` makes uv switch to the project folder before running, so it finds the project's `.venv` no matter which folder the MCP client starts in. In a client's JSON config this looks like:
 
@@ -192,7 +192,7 @@ In `stdio` mode, `--directory` makes uv switch to the project folder before runn
 
 1. Set `MCP_API_KEY` in `.env` (see [Configuration](#configuration)).
 2. `docker compose up -d --build` — this starts the SSE server on container port 8081, published as host port **8091**.
-3. Configure your MCP client with the URL `http://<vps-host>:8091` and the token as the `Authorization: Bearer` header.
+3. Configure your MCP client with the SSE URL `http://<vps-host>:8091/sse` and the token as the `Authorization: Bearer` header.
 
 If you don't use an MCP client, this server just runs in the background and can be ignored.
 
@@ -232,7 +232,7 @@ New users must be created through the CLI (there is no sign-up page):
 1. Manage users → 2. Create new user
 ```
 
-You will be prompted for a name, an avatar color, and a password (minimum 6 characters, entered twice for confirmation).
+You will be prompted for a name, an avatar color, and a password (minimum 6 characters and maximum 72 bytes — accented letters like ñ count as 2 — entered twice for confirmation).
 
 #### User submenu options
 

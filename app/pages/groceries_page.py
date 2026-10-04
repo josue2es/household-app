@@ -86,8 +86,8 @@ def _render_photo_identify(name_input, known_categories: dict[str, str], refresh
     api_key_configured = bool(os.getenv("GEMINI_API_KEY"))
 
     async def handle_photo(e):
-        image_bytes = e.content.read()
-        mime = e.type or "image/jpeg"
+        image_bytes = await e.file.read()
+        mime = e.file.content_type or "image/jpeg"
         upload.reset()
 
         notification = ui.notification("Identificando artículo…", spinner=True, timeout=None)
