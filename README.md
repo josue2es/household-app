@@ -70,6 +70,7 @@ A shared shopping list with a smart search field.
 | Database | SQLite (single file at `data/household.db`) |
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
+| Local tooling | [uv](https://docs.astral.sh/uv/) (Python version, virtual environment, dependencies) |
 | Deployment | Docker + Docker Compose |
 
 ---
@@ -95,10 +96,21 @@ The SQLite database is stored in `./data/household.db` on the host (mounted into
 
 ### Locally (no Docker)
 
+Local development uses [uv](https://docs.astral.sh/uv/) to manage the Python version, the virtual environment, and dependencies. Install it once by following the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
 ```bash
-pip install -r requirements.txt
-python -m app.main
+# One-time setup: create .venv with Python 3.12 (same version as the Docker image).
+# uv downloads Python 3.12 automatically if it isn't installed.
+uv venv --python 3.12
+
+# Install dependencies (re-run whenever requirements.txt changes)
+uv pip install -r requirements.txt
+
+# Start the app
+uv run python -m app.main
 ```
+
+`uv run` executes the command inside the project's `.venv`, so there is no need to activate the virtual environment first. Run all commands from the project root.
 
 ---
 
@@ -137,8 +149,21 @@ It supports two transport modes, controlled by the `MCP_TRANSPORT` env var:
 
 | Mode | When it's used | How a client connects |
 |---|---|---|
-| `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `python -m app.mcp_server`, run from the project root |
+| `stdio` (default) | Local development — the MCP client launches the server itself as a subprocess | Point the client at `uv run --directory /path/to/household-app python -m app.mcp_server` |
 | `sse` | Docker deployment — `start.sh` always launches it this way, alongside the web app | HTTP to `http://<host>:8091` (host port from `docker-compose.yml`, mapped to container port 8081), with header `Authorization: Bearer <MCP_API_KEY>` |
+
+In `stdio` mode, `--directory` makes uv switch to the project folder before running, so it finds the project's `.venv` no matter which folder the MCP client starts in. In a client's JSON config this looks like:
+
+```json
+{
+  "mcpServers": {
+    "household-app": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/household-app", "python", "-m", "app.mcp_server"]
+    }
+  }
+}
+```
 
 ### Available tools
 
@@ -175,8 +200,8 @@ docker compose exec household-app python -m app.admin
 Or locally:
 
 ```bash
-python -m app.admin           # skip mode: existing records are left unchanged
-python -m app.admin --update  # update mode: existing records are overwritten on import
+uv run python -m app.admin           # skip mode: existing records are left unchanged
+uv run python -m app.admin --update  # update mode: existing records are overwritten on import
 ```
 
 ### Main menu
@@ -336,11 +361,11 @@ To reset the database (start fresh):
 ```powershell
 # Windows
 Remove-Item data\household.db
-python -m app.main  # tables are recreated automatically on startup
+uv run python -m app.main  # tables are recreated automatically on startup
 ```
 
 ```bash
 # Linux / macOS
 rm data/household.db
-python -m app.main
+uv run python -m app.main
 ```
