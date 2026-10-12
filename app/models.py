@@ -6,7 +6,8 @@ SQLAlchemy generates the SQL for us automatically.
 """
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, String, DateTime, Boolean, ForeignKey, JSON, Text
+    Column, Integer, String, Date, DateTime, Boolean, ForeignKey, JSON, Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 import bcrypt
@@ -17,6 +18,19 @@ from app.database import Base
 # ValueError for longer input instead of silently ignoring the rest.
 # (Accented letters like "ñ" take 2 bytes in UTF-8.)
 BCRYPT_MAX_PASSWORD_BYTES = 72
+
+# User roles. Each one decides which pages a user can open (see app/main.py).
+ROLE_ADMIN = "admin"              # sees everything, creates manager/housekeeper accounts
+ROLE_MANAGER = "manager"          # reviews the housekeeper's work
+ROLE_HOUSEKEEPER = "housekeeper"  # does the chores, proves 2 of them with a photo each day
+ROLES = [ROLE_ADMIN, ROLE_MANAGER, ROLE_HOUSEKEEPER]
+
+# How each role is called in the UI.
+ROLE_LABELS = {
+    ROLE_ADMIN: "Administrador",
+    ROLE_MANAGER: "Supervisor",
+    ROLE_HOUSEKEEPER: "Ama de llaves",
+}
 
 
 # ============================================================
@@ -29,6 +43,11 @@ class User(Base):
     name = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(200), nullable=False)
     avatar_color = Column(String(20), default="blue")  # for UI badges
+    # One of ROLES. Users that existed before roles were added became admins
+    # (see _add_missing_columns in database.py).
+    role = Column(String(20), nullable=False, default=ROLE_HOUSEKEEPER)
+    # Deactivated users can't log in, but their history is kept.
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships — let us do `user.task_logs` to get all their completions
@@ -55,7 +74,7 @@ class User(Base):
         )
 
     def __repr__(self):
-        return f"<User {self.name}>"
+        return f"<User {self.name} ({self.role})>"
 
 
 # ============================================================
@@ -101,6 +120,58 @@ class TaskLog(Base):
 
     task = relationship("Task", back_populates="logs")
     user = relationship("User", back_populates="task_logs")
+
+
+# ============================================================
+# TASK_CHECKS  (tasks drawn at random each day for a quality check)
+# ============================================================
+class TaskCheck(Base):
+    """
+    One task picked at random to be checked on a given day.
+
+    kind = "photo":      the housekeeper proves the task with a photo,
+                         then a manager rates it.
+    kind = "inspection": a manager inspects the task in person, takes a
+                         photo and rates it. The housekeeper doesn't see
+                         it until it has been rated.
+
+    See app/services/check_service.py for the rules.
+    """
+    __tablename__ = "task_checks"
+    __table_args__ = (
+        # `slot` (1, 2, ...) numbers the checks of one kind on one day. If two
+        # processes draw the same day at the same moment, the second insert
+        # breaks this constraint and is rolled back, so a day is drawn once.
+        UniqueConstraint("day", "kind", "slot"),
+        UniqueConstraint("day", "task_id"),  # never the same task twice a day
+    )
+
+    id = Column(Integer, primary_key=True)
+    day = Column(Date, nullable=False, index=True)  # local calendar day (LOCAL_TZ)
+    kind = Column(String(20), nullable=False)
+    slot = Column(Integer, nullable=False)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+
+    # The photo: the housekeeper's proof, or the manager's inspection photo.
+    # Path relative to data/photos/ (see app/services/photo_service.py).
+    photo_path = Column(String(200), nullable=True)
+    photo_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    photo_at = Column(DateTime, nullable=True)
+
+    # The manager's review.
+    rating = Column(Integer, nullable=True)  # 1-5 stars; None = not reviewed yet
+    comment = Column(Text, default="")
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    # When the housekeeper opened the review (None = not seen yet).
+    seen_at = Column(DateTime, nullable=True)
+
+    task = relationship("Task")
+    photo_by = relationship("User", foreign_keys=[photo_by_user_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
+
+    def __repr__(self):
+        return f"<TaskCheck {self.day} {self.kind}#{self.slot} task={self.task_id}>"
 
 
 # ============================================================

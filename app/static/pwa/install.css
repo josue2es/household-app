@@ -1,0 +1,77 @@
+/* The "install the app" banner (see install.js). Sits above the bottom nav
+   (Quasar footer: z-index 2000) and below dialogs and notifications. */
+.pwa-install {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  max-width: 424px;
+  margin: 0 auto;
+  z-index: 5000;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  padding: 14px;
+  font-family: inherit;
+  animation: pwa-install-in 0.25s ease-out;
+}
+
+@keyframes pwa-install-in {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.pwa-install__top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pwa-install__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.pwa-install__title {
+  font-weight: 600;
+  font-size: 15px;
+  color: #1f2937;
+}
+
+.pwa-install__body {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.pwa-install__share {
+  display: inline-block;
+  vertical-align: -3px;
+  color: #2563eb;
+}
+
+.pwa-install__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.pwa-install__button {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.pwa-install__button--primary {
+  background: #5898d4;
+  color: #fff;
+}

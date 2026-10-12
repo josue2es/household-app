@@ -311,6 +311,21 @@ def get_completed_tasks_for_today(db: Session) -> list[tuple[Task, TaskLog]]:
     return result
 
 
+def get_completion_on(db: Session, task_id: int, day: date) -> TaskLog | None:
+    """The most recent completion of a task on a given local day, or None."""
+    start, end = _local_date_to_utc_bounds(day)
+    return (
+        db.query(TaskLog)
+        .filter(
+            TaskLog.task_id == task_id,
+            TaskLog.completed_at >= start,
+            TaskLog.completed_at <= end,
+        )
+        .order_by(TaskLog.completed_at.desc())
+        .first()
+    )
+
+
 def undo_task_completion(db: Session, log_id: int) -> None:
     """Delete a completion log entry, returning the task to the pending list."""
     log = db.query(TaskLog).filter(TaskLog.id == log_id).first()

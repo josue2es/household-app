@@ -12,54 +12,124 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from fastapi.responses import FileResponse, Response
 from nicegui import ui, app as nicegui_app
 
-from app.database import init_db
-from app import auth
-from app.pages import login_page, tasks_page, add_task_page, groceries_page
+from app.database import get_db, init_db
+from app import auth, pwa
+from app.models import ROLE_ADMIN, ROLE_MANAGER, ROLE_HOUSEKEEPER, TaskCheck
+from app.services.check_service import KIND_PHOTO
+from app.services.photo_service import photo_file
+from app.pages import (
+    login_page, tasks_page, add_task_page, groceries_page,
+    review_page, feedback_page, users_page,
+)
+
+
+def _page_user(*roles: str) -> dict | None:
+    """
+    The logged-in user, if their role may open this page (any role when
+    `roles` is empty). Otherwise redirect — to /login, or to the user's
+    own home page — and return None.
+
+    Every page checks this, and the bottom nav (NAV_BY_ROLE in
+    ui_helpers.py) only links to pages the role may open.
+    """
+    user = auth.current_user()
+    if user is None:
+        auth.logout()  # forget a deleted or deactivated account
+        ui.navigate.to("/login")
+        return None
+    if roles and user["role"] not in roles:
+        ui.navigate.to(auth.home_page(user["role"]))
+        return None
+    return user
 
 
 # ---------- Routes ----------
 
 @ui.page("/")
 def index():
-    """Root — redirect to /tasks (or /login if not signed in)."""
-    if auth.is_authenticated():
-        ui.navigate.to("/tasks")
+    """Root — redirect to the user's home page (or /login if not signed in)."""
+    user = auth.current_user()
+    if user:
+        ui.navigate.to(auth.home_page(user["role"]))
     else:
         ui.navigate.to("/login")
 
 
 @ui.page("/login")
 def login():
-    if auth.is_authenticated():
-        ui.navigate.to("/tasks")
+    user = auth.current_user()
+    if user:
+        ui.navigate.to(auth.home_page(user["role"]))
         return
     login_page.render()
 
 
 @ui.page("/tasks")
 def tasks():
-    if not auth.is_authenticated():
-        ui.navigate.to("/login")
-        return
-    tasks_page.render()
+    user = _page_user()
+    if user:
+        tasks_page.render(user)
 
 
 @ui.page("/tasks/new")
 def new_task():
-    if not auth.is_authenticated():
-        ui.navigate.to("/login")
-        return
-    add_task_page.render()
+    if _page_user(ROLE_ADMIN, ROLE_MANAGER):
+        add_task_page.render()
 
 
 @ui.page("/groceries")
 def groceries():
-    if not auth.is_authenticated():
-        ui.navigate.to("/login")
-        return
-    groceries_page.render()
+    if _page_user():
+        groceries_page.render()
+
+
+@ui.page("/review")
+def review(day: str | None = None):
+    user = _page_user(ROLE_ADMIN, ROLE_MANAGER)
+    if user:
+        review_page.render(user, day)
+
+
+@ui.page("/feedback")
+def feedback():
+    user = _page_user(ROLE_HOUSEKEEPER)
+    if user:
+        feedback_page.render(user)
+
+
+@ui.page("/users")
+def users():
+    user = _page_user(ROLE_ADMIN)
+    if user:
+        users_page.render(user)
+
+
+@nicegui_app.get("/photos/{check_id}", include_in_schema=False)
+async def task_photo(check_id: int):
+    """
+    A check's photo. Photos of the house are private: only logged-in users
+    get them, and the housekeeper can't see an inspection before it's rated.
+    """
+    user = auth.current_user()
+    if user is None:
+        return Response(status_code=401)
+    with get_db() as db:
+        check = db.get(TaskCheck, check_id)
+        visible = check is not None and check.photo_path and (
+            user["role"] != ROLE_HOUSEKEEPER
+            or check.kind == KIND_PHOTO
+            or check.rating is not None
+        )
+        path = photo_file(check.photo_path) if visible else None
+    if path is None:
+        return Response(status_code=404)
+    # The URL changes with every new photo (see ui_helpers.photo_url),
+    # so the browser can keep it for a week.
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=604800"})
 
 
 # ---------- Bootstrap ----------
@@ -76,6 +146,7 @@ logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("household").setLevel(logging.INFO)
 
 init_db()  # Create tables if missing
+pwa.setup()  # Installable app: manifest, service worker, install banner
 
 # `storage_secret` is required for app.storage.user. In production set via env var.
 STORAGE_SECRET = os.environ.get("STORAGE_SECRET", "dev-secret-change-me")

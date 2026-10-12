@@ -15,7 +15,11 @@ from getpass import getpass
 from pathlib import Path
 from sqlalchemy import func
 from app.database import get_db
-from app.models import User, GroceryItem, Task, ActiveShoppingItem, BCRYPT_MAX_PASSWORD_BYTES
+from app.models import (
+    User, GroceryItem, Task, ActiveShoppingItem, BCRYPT_MAX_PASSWORD_BYTES,
+    ROLES, ROLE_LABELS,
+)
+from app.services.user_service import AVATAR_COLORS
 
 
 # Parse command-line flags once at startup.
@@ -672,7 +676,7 @@ def users_menu() -> None:
         print("  1. List all users")
         print("  2. Create new user")
         print("  3. Change user password")
-        print("  4. Edit user (name / color)")
+        print("  4. Edit user (name / color / role)")
         print("  5. Delete user")
         print("  0. Back to main menu")
         print()
@@ -704,11 +708,6 @@ def users_menu() -> None:
 # User operations
 # ============================================================
 
-# Quasar avatar colors that look reasonable
-AVATAR_COLORS = ["red", "pink", "purple", "deep-purple", "indigo", "blue",
-                 "light-blue", "cyan", "teal", "green", "amber", "orange"]
-
-
 def list_users() -> None:
     """Print a table of all users."""
     with get_db() as db:
@@ -717,14 +716,15 @@ def list_users() -> None:
             print("\n(No users found)")
             return
         # Detach what we need before session closes
-        rows = [(u.id, u.name, u.avatar_color, u.created_at) for u in users]
+        rows = [(u.id, u.name, u.role, u.is_active, u.avatar_color, u.created_at) for u in users]
 
     print()
-    print(f"  {'ID':<4} {'Name':<20} {'Color':<14} {'Created'}")
-    print(f"  {'-'*4} {'-'*20} {'-'*14} {'-'*19}")
-    for uid, name, color, created in rows:
+    print(f"  {'ID':<4} {'Name':<20} {'Role':<12} {'Active':<7} {'Color':<14} {'Created'}")
+    print(f"  {'-'*4} {'-'*20} {'-'*12} {'-'*7} {'-'*14} {'-'*19}")
+    for uid, name, role, active, color, created in rows:
         created_str = created.strftime("%Y-%m-%d %H:%M") if created else "?"
-        print(f"  {uid:<4} {name:<20} {color:<14} {created_str}")
+        active_str = "yes" if active else "no"
+        print(f"  {uid:<4} {name:<20} {role:<12} {active_str:<7} {color:<14} {created_str}")
     print(f"\n  {len(rows)} user(s) total")
 
 
@@ -743,6 +743,10 @@ def create_user() -> None:
             print(f"User '{name}' already exists.")
             return
 
+    role = pick_role()
+    if role is None:
+        return  # user cancelled
+
     color = pick_color()
     if color is None:
         return  # user cancelled
@@ -752,7 +756,7 @@ def create_user() -> None:
         return
 
     with get_db() as db:
-        user = User(name=name, avatar_color=color)
+        user = User(name=name, role=role, avatar_color=color, is_active=True)
         user.set_password(password)
         db.add(user)
         # commit happens automatically when the with-block exits successfully
@@ -779,17 +783,20 @@ def change_user_password() -> None:
 
 
 def edit_user() -> None:
-    """Edit a user's name or avatar color."""
+    """Edit a user's name, avatar color or role."""
     user = pick_user("Edit which user?")
     if user is None:
         return
 
-    print(f"\nCurrent: name='{user['name']}', color='{user['color']}'")
+    print(f"\nCurrent: name='{user['name']}', color='{user['color']}', role='{user['role']}'")
     print("(Press Enter to keep the current value)\n")
 
     new_name = prompt(f"New name [{user['name']}]") or user["name"]
     new_color = pick_color(default=user["color"])
     if new_color is None:
+        return
+    new_role = pick_role(default=user["role"])
+    if new_role is None:
         return
 
     # Check name conflict (only if name changed)
@@ -804,6 +811,7 @@ def edit_user() -> None:
         u = db.query(User).filter(User.id == user["id"]).first()
         u.name = new_name
         u.avatar_color = new_color
+        u.role = new_role
 
     print(f"\n✓ User updated.")
 
@@ -840,15 +848,15 @@ def pick_user(message: str) -> dict | None:
     """
     with get_db() as db:
         users = db.query(User).order_by(User.name).all()
-        rows = [(u.id, u.name, u.avatar_color) for u in users]
+        rows = [(u.id, u.name, u.avatar_color, u.role) for u in users]
 
     if not rows:
         print("\n(No users to choose from)")
         return None
 
     print()
-    for idx, (uid, name, color) in enumerate(rows, start=1):
-        print(f"  {idx}. {name} ({color})")
+    for idx, (uid, name, color, role) in enumerate(rows, start=1):
+        print(f"  {idx}. {name} ({role}, {color})")
     print(f"  0. Cancel")
     print()
 
@@ -863,8 +871,33 @@ def pick_user(message: str) -> dict | None:
         print(f"Invalid selection: '{choice}'")
         return None
 
-    uid, name, color = rows[idx - 1]
-    return {"id": uid, "name": name, "color": color}
+    uid, name, color, role = rows[idx - 1]
+    return {"id": uid, "name": name, "color": color, "role": role}
+
+
+def pick_role(default: str | None = None) -> str | None:
+    """Show a numbered list of roles. Returns the chosen role or None on cancel."""
+    print("\n  Roles:")
+    for idx, r in enumerate(ROLES, start=1):
+        marker = "  ← current" if r == default else ""
+        print(f"  {idx}. {r} ({ROLE_LABELS[r]}){marker}")
+    print()
+
+    label = "Pick a role"
+    if default:
+        label += f" [Enter to keep '{default}']"
+    choice = prompt(label)
+
+    if choice == "" and default:
+        return default
+    try:
+        idx = int(choice)
+        if not 1 <= idx <= len(ROLES):
+            raise ValueError
+        return ROLES[idx - 1]
+    except ValueError:
+        print(f"Invalid role choice: '{choice}'")
+        return None
 
 
 def pick_color(default: str | None = None) -> str | None:
@@ -1314,13 +1347,14 @@ def _export_users(path: Path) -> int:
     """
     with get_db() as db:
         rows = [
-            (u.name, u.avatar_color, u.created_at.isoformat() if u.created_at else "")
+            (u.name, u.role, u.is_active, u.avatar_color,
+             u.created_at.isoformat() if u.created_at else "")
             for u in db.query(User).order_by(User.name).all()
         ]
 
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["name", "avatar_color", "created_at"])
+        writer.writerow(["name", "role", "is_active", "avatar_color", "created_at"])
         writer.writerows(rows)
     return len(rows)
 
