@@ -44,7 +44,7 @@ A shared shopping list with a smart search field.
 - Items are grouped by category on the list.
 - Tap the circle to mark an item as purchased (increments its purchase count for future sorting).
 - Use the ⋮ menu to remove an item without marking it purchased.
-- Tap **Identificar con foto** to open the phone's camera, take a photo of a product, and let Gemini identify its name and category. A confirmation dialog lets you review/edit both before adding it to the list. Requires `GEMINI_API_KEY` to be configured; the button is disabled otherwise.
+- Tap **Identificar con foto** to open the phone's camera, take a photo of a product, and let Gemini identify its name and category. A confirmation dialog lets you review/edit both before adding it to the list. Requires `GEMINI_API_KEY` to be configured; the button is disabled otherwise. If the product can't be identified, a message stays on screen with the reason and a reference code (see [Photo identification problems](#photo-identification-problems)).
 
 #### Categories
 
@@ -256,6 +256,24 @@ The app uses a hardcoded UTC−6 offset to determine which tasks are due today a
 ```python
 LOCAL_TZ = timezone(timedelta(hours=-6))  # change -6 to your UTC offset
 ```
+
+### Photo identification problems
+
+When identifying a photo fails, the app shows a message that stays until you tap **Cerrar**: what went wrong, the technical reason underneath (for example Gemini's own error), and a reference code such as `Ref 4c2513`. The server log has one line per attempt, successful or not, tagged with that same code, so you can look up the details:
+
+```bash
+journalctl -u household-app | grep 4c2513          # systemd service
+docker compose logs household-app | grep 4c2513    # Docker
+```
+
+| Message | What to do |
+|---|---|
+| El modelo '…' no existe o ya no está disponible | Google renamed or retired the model: set `GEMINI_MODEL` in `.env` to a current one and restart the app |
+| La clave GEMINI_API_KEY no es válida o no tiene permiso | Check `GEMINI_API_KEY` in `.env`, or create a new key at [aistudio.google.com](https://aistudio.google.com/) |
+| Se agotó la cuota de Gemini | You hit the API's rate or quota limit: wait a moment, or check your plan |
+| Gemini no respondió a tiempo | Gemini took more than 60 s: try again |
+| La foto no se pudo subir | The browser or a proxy refused the upload; the reason (size, file type or HTTP status) is shown underneath |
+| No se reconoció ningún producto en la foto | Not an error: Gemini didn't see a grocery product. Try a closer photo, or type the name |
 
 ---
 

@@ -7,6 +7,7 @@ Run with:
 Then visit http://localhost:8080 in a browser (or the port set by
 APP_PORT in .env).
 """
+import logging
 import os
 from pathlib import Path
 
@@ -67,6 +68,12 @@ def groceries():
 # Variables already set in the environment win over .env, so Docker's
 # settings (passed in by docker-compose.yml) are never overridden.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# Print the app's own log messages (e.g. one line per photo identification,
+# with its reference code) to the console, journalctl or `docker compose logs`.
+# Libraries keep the default level (warnings and errors only).
+logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.getLogger("household").setLevel(logging.INFO)
 
 init_db()  # Create tables if missing
 

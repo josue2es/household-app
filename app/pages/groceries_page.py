@@ -4,7 +4,9 @@ Groceries page — Module 2.
 Smart-add input (autocomplete from catalog) + checklist of pending items.
 Category is only asked when adding a brand-new item not already in the catalog.
 """
+import logging
 import os
+import secrets
 
 from nicegui import ui
 from app import auth
@@ -21,9 +23,13 @@ from app.services.grocery_service import (
 from app.services.vision_service import (
     identify_grocery_from_photo,
     VisionError,
-    VisionNotConfigured,
     VisionUnrecognized,
 )
+
+log = logging.getLogger("household.photo")
+
+# Largest photo the browser will upload (phone photos are usually 2-8 MB).
+MAX_PHOTO_BYTES = 15_000_000
 
 
 def render():
@@ -82,45 +88,102 @@ def _render_smart_add(refresh_fn):
 
 
 def _render_photo_identify(name_input, known_categories: dict[str, str], refresh_fn):
-    """Button that opens the camera and identifies a product via Gemini."""
+    """
+    Button that opens the camera and identifies a product via Gemini.
+
+    Every outcome is reported on screen: progress while the photo uploads and
+    Gemini looks at it, then either the identified product or a problem that
+    stays visible until closed. Problems show their technical reason and a
+    reference code that matches the server log line for that attempt.
+    """
     api_key_configured = bool(os.getenv("GEMINI_API_KEY"))
+    progress = {"notification": None}
+
+    def show_progress(message: str):
+        if progress["notification"] is None:
+            progress["notification"] = ui.notification(message, spinner=True, timeout=None)
+        else:
+            progress["notification"].message = message
+
+    def hide_progress():
+        if progress["notification"] is not None:
+            progress["notification"].dismiss()
+            progress["notification"] = None
 
     async def handle_photo(e):
-        image_bytes = await e.file.read()
-        mime = e.file.content_type or "image/jpeg"
-        upload.reset()
-
-        notification = ui.notification("Identificando artículo…", spinner=True, timeout=None)
+        ref = secrets.token_hex(3)  # short code shown to the user and written to the log
+        show_progress("Identificando artículo…")
         try:
+            image_bytes = await e.file.read()
+            mime = e.file.content_type or "image/jpeg"
             with get_db() as db:
                 catalog_names = [i.name for i in search_suggestions(db, query="", limit=300)]
-            name, category = await identify_grocery_from_photo(image_bytes, mime, catalog_names)
-        except VisionNotConfigured:
-            show_error("Falta configurar GEMINI_API_KEY en el servidor")
-            return
-        except VisionUnrecognized:
-            show_error(
-                "No pude reconocer un producto en la foto. Intenta de nuevo o escríbelo manualmente."
+            name, category = await identify_grocery_from_photo(
+                image_bytes, mime, catalog_names, ref=ref
             )
+        except VisionUnrecognized as err:
+            _notify_problem(str(err), f"Prueba otra foto o escríbelo manualmente · Ref {ref}",
+                            type="warning")
             return
-        except VisionError:
-            show_error("No se pudo identificar el artículo. Intenta de nuevo.")
+        except VisionError as err:  # already logged by the vision service
+            _notify_problem(str(err), f"{err.detail} · Ref {ref}")
+            return
+        except Exception as err:
+            log.exception("[%s] Unexpected error while identifying a photo", ref)
+            _notify_problem("Error inesperado al identificar la foto",
+                            f"{type(err).__name__}: {err} · Ref {ref}")
             return
         finally:
-            notification.dismiss()
+            hide_progress()
+            upload.reset()
 
+        ui.notify(f"Artículo identificado: {name}", type="positive", position="top")
         _show_photo_confirm_dialog(name, category, known_categories, name_input, refresh_fn)
+
+    def handle_rejected(e):
+        """The browser refused the file before uploading it (too big, not an image, ...)."""
+        ref = secrets.token_hex(3)
+        reasons = []
+        for entry in e.args.get("files", []):
+            if entry.get("reason") == "max-file-size":
+                reasons.append(f"pesa {entry.get('size', 0) / 1e6:.1f} MB; el máximo es "
+                               f"{MAX_PHOTO_BYTES / 1e6:.0f} MB")
+            elif entry.get("reason") == "accept":
+                reasons.append(f"no es una imagen ({entry.get('type') or entry.get('name')})")
+            else:
+                reasons.append(str(entry.get("reason")))
+        log.warning("[%s] Photo upload rejected by the browser: %s", ref, e.args)
+        _notify_problem("La foto no se pudo subir", f"{'; '.join(reasons)} · Ref {ref}")
+        upload.reset()
+
+    def handle_failed(e):
+        """The upload itself failed (connection lost, proxy refused it, ...)."""
+        ref = secrets.token_hex(3)
+        status = e.args.get("status", 0)
+        reason = f"HTTP {status} {e.args.get('response', '')}".strip() if status else \
+            "sin conexión con el servidor"
+        log.error("[%s] Photo upload failed: %s", ref, e.args)
+        hide_progress()
+        _notify_problem("La foto no se pudo subir", f"{reason} · Ref {ref}")
+        upload.reset()
 
     upload = (
         ui.upload(
             auto_upload=True,
             max_files=1,
-            max_file_size=15_000_000,
+            max_file_size=MAX_PHOTO_BYTES,
+            on_begin_upload=lambda: show_progress("Subiendo foto…"),
             on_upload=handle_photo,
         )
         .props('accept="image/*"')
         .classes("hidden")
     )
+    # Quasar's own events carry the details NiceGUI's on_rejected leaves out.
+    upload.on("rejected", handle_rejected, js_handler="""(entries) => emit({files: entries.map(
+        (e) => ({reason: e.failedPropValidation, name: e.file.name, size: e.file.size, type: e.file.type}))})""")
+    upload.on("failed", handle_failed, js_handler="""(info) => emit({
+        status: info.xhr ? info.xhr.status : 0,
+        response: info.xhr ? String(info.xhr.responseText || '').slice(0, 200) : ''})""")
 
     photo_btn = ui.button("Identificar con foto", icon="photo_camera").classes("w-full").props(
         "outline color=primary"
@@ -144,6 +207,12 @@ def _render_photo_identify(name_input, known_categories: dict[str, str], refresh
         ui.label("Configura GEMINI_API_KEY para activar esta función").classes(
             "text-xs text-gray-400"
         )
+
+
+def _notify_problem(message: str, caption: str, type: str = "negative"):
+    """A notification that stays on screen until closed, so a problem can't go unnoticed."""
+    ui.notify(message, caption=caption, type=type, position="top", multi_line=True,
+              timeout=0, actions=[{"label": "Cerrar", "color": "white"}])
 
 
 def _do_add(item_name: str, category: str | None, user_id: int, name_input, refresh_fn):
