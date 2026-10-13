@@ -31,6 +31,7 @@ from app.services.task_service import (
     remove_task as svc_remove_task,
     create_task as svc_create_task,
 )
+from app.services.check_service import local_today, task_needs_photo
 from app.services.grocery_service import (
     get_active_list,
     add_to_active_list,
@@ -51,7 +52,7 @@ def _resolve_user(user_name: str) -> tuple[int, str | None]:
     Returns (user_id, None) on success or (0, error_message) on failure.
     """
     with get_db() as db:
-        user = db.query(User).filter(User.name == user_name).first()
+        user = db.query(User).filter(User.name == user_name, User.is_active.is_(True)).first()
         if not user:
             return 0, f"User '{user_name}' not found. Check the name and try again."
         return user.id, None
@@ -148,8 +149,11 @@ def list_pending_tasks() -> list[dict]:
     Return all tasks that are pending for today.
     Includes both scheduled tasks (specific day/date) and flexible tasks
     (weekly_any, monthly_any, bimonthly_any, every_x_days).
-    Each item includes: id, name, description, frequency, frequency_type.
+    Each item includes: id, name, description, frequency, frequency_type,
+    requires_photo. Tasks with requires_photo=true are today's photo checks:
+    they can only be completed from the app, by taking a photo.
     """
+    today = local_today()
     with get_db() as db:
         tasks = get_pending_tasks_today(db)
         return [
@@ -159,6 +163,7 @@ def list_pending_tasks() -> list[dict]:
                 "description": t.description or "",
                 "frequency": _format_freq(t.frequency_type, t.frequency_config or {}),
                 "frequency_type": t.frequency_type,
+                "requires_photo": task_needs_photo(db, t.id, today),
             }
             for t in tasks
         ]
@@ -202,6 +207,9 @@ def complete_task(task_id: int, user_name: str) -> str:
         task = db.query(Task).filter(Task.id == task_id, Task.is_active.is_(True)).first()
         if not task:
             return f"Task with id {task_id} not found or is inactive."
+        if task_needs_photo(db, task_id, local_today()):
+            return (f"'{task.name}' is one of today's photo checks: it can only be "
+                    "completed from the app, by taking a photo of the finished work.")
         svc_complete_task(db, task_id, user_id)
         db.commit()
         return f"✓ '{task.name}' marked as completed by {user_name}."

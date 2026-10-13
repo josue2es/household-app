@@ -1,6 +1,8 @@
 # Household App
 
-A mobile-first web app for managing household chores and the grocery shopping list. Designed to be used from a phone browser.
+A mobile-first web app for managing household chores and the grocery shopping list. Designed to be used from a phone, either in the browser or [installed as an app](#installing-the-app-pwa) on the home screen.
+
+Three kinds of users share it: admins, a manager (supervisor) who reviews the housekeeper's work, and the housekeeper, who proves part of her work with photos every day. See [Roles](#roles).
 
 Built with Python, [NiceGUI](https://nicegui.io/), and SQLite. Deployed via Docker.
 
@@ -17,6 +19,10 @@ Track recurring and one-off household tasks. The dashboard shows only what is du
 
 Completed tasks stay visible below the pending sections (greyed out with strikethrough) and can be reactivated with a single tap if marked by mistake.
 
+Above them, **Con foto de comprobación** lists the day's [photo tasks](#daily-photo-checks): these are completed by taking a photo instead of tapping the circle.
+
+Admins and managers can add tasks (the **+** button); the housekeeper can't.
+
 #### Frequency types
 
 | Type | Description |
@@ -32,6 +38,56 @@ Completed tasks stay visible below the pending sections (greyed out with striket
 | `Cada X días` | Appears every day; once completed, disappears for exactly X days then reappears |
 
 Every completion is recorded in the database with a timestamp and the user who did it, giving a full audit trail.
+
+---
+
+### Roles
+
+Every user has one of three roles. It decides which tabs they see at the bottom and which pages they can open (any other page sends them back to their own start page).
+
+| Role | Shown as | Tabs | Can |
+|---|---|---|---|
+| `admin` | Administrador | Tareas, Revisión, Compras, Usuarios | See everything the housekeeper and the manager do (Revisión is read-only for admins); create and manage manager and housekeeper accounts; add tasks |
+| `manager` | Supervisor | Revisión, Tareas, Compras | Rate the housekeeper's photos, inspect 2 more tasks a day with their own photo, comment; add tasks |
+| `housekeeper` | Ama de llaves | Tareas, Compras, Evaluaciones | Do the chores, prove 2 of them with a photo each day, read the manager's ratings and comments |
+
+The Spanish names are in `ROLE_LABELS` in `app/models.py`.
+
+**Usuarios** (admins): create a manager or housekeeper account (name, role, color, password), and from each account's ⋮ menu change its password, switch it between Supervisor and Ama de llaves, or deactivate it. A deactivated user can't log in (and is logged out right away), but their history is kept; they can be activated again. Admin accounts are managed only with the [Admin CLI](#admin-cli), so nobody can lock the admins out from the web.
+
+Users that existed before roles were added became admins automatically on the first start of this version.
+
+---
+
+### Daily photo checks
+
+Each day, the first time a housekeeper opens the app, 4 of the day's tasks are drawn at random from those with a fixed day (`Diario`, `Semanal (día específico)`, `Días específicos`, `Mensual (día específico)`, `Una sola vez`; flexible "any day" tasks are never drawn, since they may not be planned for today):
+
+- **2 photo tasks** — the housekeeper sees them at the top of **Tareas** and completes them with **Tomar foto y completar**, which opens the phone's camera directly (no gallery, so the photo is taken on the spot). A task someone already completed that day isn't drawn as a photo task. Until it's rated she can take the photo back (↺) and retake it.
+- **2 inspections** — only the manager sees these. They check the task in person, take a photo, and rate it. The housekeeper doesn't know which tasks they are until they are rated.
+
+Nothing is drawn on days no housekeeper opens the app, nor while no housekeeper account exists, so admins and managers never need photos on their own. If fewer than 4 tasks are scheduled for a day, fewer are drawn (photo tasks first).
+
+**Revisión** (managers, read-only for admins) shows a day's checks with their photos; ‹ › moves between days. The manager rates each one from 1 to 5 stars, with an optional comment on what was wrong, and can edit it later. A photo task can be rated as soon as its photo arrives, or from the next day on without a photo (to record that it wasn't done). Earlier days that still have something to rate are listed at the top, and the tab's red badge counts what's waiting.
+
+**Evaluaciones** (housekeeper) lists the ratings and comments of the last 60 days, newest first, plus the 30-day average. New ones are marked *Nuevo* and counted on the tab's badge until she opens the page; an edited review counts as new again. Today's ratings also appear on her photo tasks in **Tareas**.
+
+Photos are shrunk to at most 1600 px and saved as JPEG (a few hundred KB each) in `data/photos/<date>/`, so they are kept with the database and included in the Docker volume. Only logged-in users can open them, and the housekeeper can't open an inspection's photo before it's rated.
+
+If several housekeepers have accounts, they share the same daily checks and feedback (tasks belong to the household, not to a person).
+
+---
+
+### Installing the app (PWA)
+
+The app is a Progressive Web App: it can be installed on the phone's home screen and then opens full screen, with its own icon, like a native app.
+
+- **Android** (Chrome, Edge, Samsung Internet): a banner offers **Instalar**; tapping it opens the browser's install dialog.
+- **iPhone/iPad**: Safari has no install dialog, so the banner explains it: tap Share, then **Agregar a inicio**.
+
+The banner shows on every page (including the login page) until the app is installed; **Ahora no** / **Entendido** hides it for 3 days on that device (`SNOOZE_DAYS` in `app/static/pwa/install.js`). When the server can't be reached, the installed app shows a "Sin conexión" page with a retry button instead of a browser error.
+
+Browsers only offer installation for sites served over **HTTPS** (or `localhost`). Over plain `http://<ip>:8080` Android shows no banner; set up [HTTPS with Caddy](#https-with-caddy-and-cloudflare) for it. The PWA files are in `app/static/pwa/` and are wired up in `app/pwa.py`.
 
 ---
 
@@ -70,6 +126,8 @@ A shared shopping list with a smart search field.
 | Database | SQLite (single file at `data/household.db`) |
 | Auth | bcrypt password hashing + NiceGUI browser session storage |
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
+| Photos | [Pillow](https://python-pillow.org/) — shrinks the task photos before saving them |
+| Installable app | Web app manifest + service worker (`app/pwa.py`, `app/static/pwa/`) |
 | Dependencies | [uv](https://docs.astral.sh/uv/) — declared in `pyproject.toml`, pinned in `uv.lock`; used both locally and in the Docker image |
 | Deployment | Docker + Docker Compose, or systemd services (`deploy/`) |
 
@@ -215,7 +273,7 @@ Both servers speak plain HTTP. To serve them over HTTPS, put [Caddy](https://cad
 
    Then `sudo systemctl reload caddy`.
 
-3. The web app is at `https://hogar.example.com`, and MCP clients connect to `https://hogar.example.com/sse` with the `Authorization: Bearer <MCP_API_KEY>` header.
+3. The web app is at `https://hogar.example.com`, and MCP clients connect to `https://hogar.example.com/sse` with the `Authorization: Bearer <MCP_API_KEY>` header. Over HTTPS, phones also offer to [install the app](#installing-the-app-pwa).
 
 Keep `/sse` and `/messages/*` at the root of the domain: the MCP server tells clients to send their messages to `/messages/`, so serving it under a prefix such as `/mcp/sse` breaks it. The server pings the stream every 15 seconds, which keeps it open through proxies with idle timeouts (Cloudflare's is 100 seconds).
 
@@ -305,9 +363,9 @@ In `stdio` mode, `--directory` makes uv switch to the project folder before runn
 
 | Tool | Purpose |
 |---|---|
-| `list_pending_tasks` | Tasks due today (scheduled + flexible) |
+| `list_pending_tasks` | Tasks due today (scheduled + flexible); `requires_photo` marks today's [photo tasks](#daily-photo-checks) |
 | `list_completed_tasks` | Tasks completed today, with who and when |
-| `complete_task(task_id, user_name)` | Mark a task done |
+| `complete_task(task_id, user_name)` | Mark a task done (refused for photo tasks: those need a photo from the app) |
 | `add_task(name, frequency_type, frequency_value, description)` | Create a task (same frequency types as the Admin CLI) |
 | `delete_task(task_id)` | Soft-deactivate a task |
 | `get_shopping_list` | Items currently pending on the shopping list |
@@ -355,22 +413,22 @@ uv run python -m app.admin --update  # update mode: existing records are overwri
 
 ### User management
 
-New users must be created through the CLI (there is no sign-up page):
+There is no sign-up page. Create the first admin through the CLI; after that, admins can create manager and housekeeper accounts from the **Usuarios** page in the app (admin accounts are always created here):
 
 ```
 1. Manage users → 2. Create new user
 ```
 
-You will be prompted for a name, an avatar color, and a password (minimum 6 characters and maximum 72 bytes — accented letters like ñ count as 2 — entered twice for confirmation).
+You will be prompted for a name, a role (`admin`, `manager` or `housekeeper` — see [Roles](#roles)), an avatar color, and a password (minimum 6 characters and maximum 72 bytes — accented letters like ñ count as 2 — entered twice for confirmation).
 
 #### User submenu options
 
 | Option | Description |
 |---|---|
-| List all users | Table of all users with ID, name, color, and creation date |
-| Create new user | Prompts for name, avatar color, and password |
+| List all users | Table of all users with ID, name, role, active (deactivated users can't log in), color, and creation date |
+| Create new user | Prompts for name, role, avatar color, and password |
 | Change user password | Pick a user and set a new password |
-| Edit user | Change name and/or avatar color |
+| Edit user | Change name, avatar color and/or role |
 | Delete user | Permanently deletes the user (completion history becomes orphaned) |
 
 ### Grocery management
@@ -486,13 +544,18 @@ SQLite file: `data/household.db`
 
 | Table | Purpose |
 |---|---|
-| `users` | App users with bcrypt-hashed passwords and avatar colors |
+| `users` | App users with bcrypt-hashed passwords, avatar colors, role and active flag |
 | `tasks` | Task definitions (name, frequency type, frequency config as JSON) |
 | `task_logs` | Immutable completion records (task, user, timestamp) |
+| `task_checks` | The [daily photo checks](#daily-photo-checks): day, kind (`photo` / `inspection`), task, photo, and the manager's rating and comment |
 | `grocery_items` | Item catalog with purchase counts for autocomplete sorting |
 | `active_shopping_items` | Current shopping list (pending and purchased entries) |
 
 Completed tasks are **never deleted** from `task_logs` — the full history is always queryable. Tasks themselves use soft-delete (`is_active = false`) to preserve the log trail.
+
+Task photos are files in `data/photos/` (the database stores their paths), so back up the whole `data/` folder, not just `household.db`.
+
+New tables are created automatically on startup, and columns added in newer versions (such as `users.role`) are added to an existing database by `_add_missing_columns()` in `app/database.py`. Your data is kept.
 
 To reset the database (start fresh):
 

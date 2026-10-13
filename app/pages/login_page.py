@@ -40,7 +40,7 @@ def render():
                 user = auth.authenticate(username_select.value, password_input.value)
                 if user:
                     auth.login(user)
-                    ui.navigate.to("/tasks")
+                    ui.navigate.to(auth.home_page(user["role"]))
                 else:
                     show_error("Usuario o contraseña incorrectos")
                     password_input.value = ""
@@ -51,7 +51,3 @@ def render():
             ui.button("Iniciar sesión", on_click=attempt_login).classes("w-full mt-2").props(
                 "size=lg color=primary"
             )
-
-        ui.label("Contraseñas por defecto: alice123 / bob123").classes(
-            "text-xs text-gray-400 text-center mt-2"
-        )

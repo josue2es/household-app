@@ -16,6 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)  # Create the folder if it doesn't exist
 DB_PATH = DATA_DIR / "household.db"
+# Task photos (proofs and inspections) are saved here — see photo_service.py.
+PHOTOS_DIR = DATA_DIR / "photos"
 
 # --- The Engine ---
 # This is the low-level connection pool to SQLite.
@@ -68,4 +70,28 @@ def init_db():
     # (Avoiding circular imports is why we do it here, not at the top.)
     from app import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
     print(f"✓ Database ready at {DB_PATH}")
+
+
+def _add_missing_columns():
+    """
+    Add columns that were added to a model after its table was created.
+
+    create_all() creates missing tables but never changes existing ones,
+    so a database created by an older version of the app needs this.
+    """
+    with engine.begin() as conn:
+        user_columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)")}
+        if "role" not in user_columns:
+            # Users from before roles existed ran the whole household: they
+            # become admins, so nobody loses access.
+            conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin'"
+            )
+            print("✓ Added users.role (existing users are now admins)")
+        if "is_active" not in user_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"
+            )
+            print("✓ Added users.is_active")
