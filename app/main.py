@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, Response
 from nicegui import ui, app as nicegui_app
 
 from app.database import get_db, init_db
-from app import auth, pwa
+from app import auth, pwa, theme
 from app.models import ROLE_ADMIN, ROLE_MANAGER, ROLE_HOUSEKEEPER, TaskCheck
 from app.services.check_service import KIND_PHOTO
 from app.services.photo_service import photo_file
@@ -147,6 +147,7 @@ logging.getLogger("household").setLevel(logging.INFO)
 
 init_db()  # Create tables if missing
 pwa.setup()  # Installable app: manifest, service worker, install banner
+theme.setup()  # Colors, font, rounded cards and buttons (app/theme.py)
 
 # `storage_secret` is required for app.storage.user. In production set via env var.
 STORAGE_SECRET = os.environ.get("STORAGE_SECRET", "dev-secret-change-me")

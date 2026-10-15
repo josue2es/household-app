@@ -17,7 +17,8 @@ from app.database import get_db
 from app.models import ROLE_MANAGER, ROLE_LABELS, ROLE_HOUSEKEEPER, TaskCheck
 from app.ui_helpers import (
     mobile_layout, camera_button, photo_view, photo_url, stars, star_rating,
-    format_day, local_time, show_error, show_success,
+    format_day, local_time, show_error, show_success, section_title, pill, empty_state,
+    refresh_nav,
 )
 from app.services.task_service import get_completion_on
 from app.services.check_service import (
@@ -32,7 +33,6 @@ from app.services.check_service import (
     average_rating,
 )
 
-SECTION_LABEL_CLASSES = "text-sm font-semibold text-gray-500 uppercase tracking-wide"
 HOUSEKEEPER = ROLE_LABELS[ROLE_HOUSEKEEPER].lower()
 
 
@@ -45,10 +45,21 @@ def render(user: dict, day: str | None = None):
     can_edit = user["role"] == ROLE_MANAGER
 
     with mobile_layout("Revisión", active_tab="review"):
-        _build_page(shown_day, today, can_edit)
+        # Defined inside render(), not at module level: a module-level
+        # refreshable would refresh the page of everyone who has it open.
+        @ui.refreshable
+        def content():
+            _build_page(shown_day, today, can_edit, refresh)
+
+        def refresh():
+            content.refresh()
+            refresh_nav()  # the "pending reviews" counter
+
+        content()
 
 
-def _build_page(day: date, today: date, can_edit: bool):
+def _build_page(day: date, today: date, can_edit: bool, refresh):
+    """The page's content. `refresh()` rebuilds it in place after a change."""
     with get_db() as db:
         photo_checks = [_check_data(db, c, today) for c in get_checks(db, day, KIND_PHOTO)]
         inspections = [_check_data(db, c, today) for c in get_checks(db, day, KIND_INSPECTION)]
@@ -58,47 +69,47 @@ def _build_page(day: date, today: date, can_edit: bool):
     _day_navigator(day, today)
 
     if earlier_pending:
-        with ui.card().classes("w-full p-3 gap-2 bg-amber-50 border border-amber-200"):
-            ui.label("Pendientes de días anteriores").classes("text-sm font-semibold text-amber-800")
+        with ui.card().classes("w-full p-3 gap-2 bg-amber-50 border-amber-200"):
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.icon("history", size="20px").classes("text-amber-800")
+                ui.label("Pendientes de días anteriores").classes("text-sm font-semibold text-amber-900")
             with ui.row().classes("gap-1 flex-wrap"):
                 for d in earlier_pending:
                     ui.chip(
                         format_day(d),
                         on_click=lambda d=d: ui.navigate.to(f"/review?day={d}"),
-                    ).props("clickable color=amber-2")
+                    ).props("clickable color=amber-2 text-color=amber-10")
 
     if count:
         with ui.row().classes("w-full items-center gap-2 px-1"):
-            ui.label("Promedio últimos 30 días:").classes("text-sm text-gray-600")
+            ui.label("Promedio últimos 30 días:").classes("text-sm text-muted")
             ui.label(f"{avg:.1f}").classes("text-sm font-semibold")
             stars(avg, size="xs")
-            ui.label(f"({count})").classes("text-xs text-gray-500")
+            ui.label(f"({count})").classes("text-xs text-muted")
 
     if not photo_checks and not inspections:
-        with ui.card().classes("w-full p-6 items-center gap-1"):
-            ui.icon("event_busy", size="40px").classes("text-gray-300")
-            ui.label("No hay revisiones este día").classes("text-gray-600")
-            ui.label(
-                f"Las tareas a revisar se sortean cuando la {HOUSEKEEPER} abre la app."
-            ).classes("text-xs text-gray-400 text-center")
+        empty_state(
+            "event_busy",
+            "No hay revisiones este día",
+            f"Las tareas a revisar se sortean cuando la {HOUSEKEEPER} abre la app.",
+        )
         return
 
-    ui.label(f"Fotos de la {HOUSEKEEPER}").classes(SECTION_LABEL_CLASSES)
+    section_title(f"Fotos de la {HOUSEKEEPER}")
     if not photo_checks:
-        ui.label("No había tareas para foto este día.").classes("text-sm text-gray-500")
+        ui.label("No había tareas para foto este día.").classes("text-sm text-muted px-1")
     for check in photo_checks:
-        _render_check_card(check, can_edit)
+        _render_check_card(check, can_edit, refresh)
 
-    ui.separator().classes("my-1")
-    ui.label("Inspecciones").classes(SECTION_LABEL_CLASSES)
+    section_title("Inspecciones")
     if can_edit:
         ui.label(
             f"Revisa estas tareas en persona y toma una foto. La {HOUSEKEEPER} no sabe cuáles son."
-        ).classes("text-xs text-gray-500 -mt-2")
+        ).classes("text-xs text-muted -mt-2 px-1")
     if not inspections:
-        ui.label("No había más tareas para inspeccionar este día.").classes("text-sm text-gray-500")
+        ui.label("No había más tareas para inspeccionar este día.").classes("text-sm text-muted px-1")
     for check in inspections:
-        _render_check_card(check, can_edit)
+        _render_check_card(check, can_edit, refresh)
 
 
 def _check_data(db, check: TaskCheck, today: date) -> dict:
@@ -122,48 +133,53 @@ def _check_data(db, check: TaskCheck, today: date) -> dict:
 
 
 def _day_navigator(day: date, today: date):
-    with ui.row().classes("w-full items-center justify-between no-wrap"):
-        ui.button(
-            icon="chevron_left",
-            on_click=lambda: ui.navigate.to(f"/review?day={day - timedelta(days=1)}"),
-        ).props("flat round color=primary")
-        with ui.column().classes("items-center gap-0"):
-            ui.label("Hoy" if day == today else format_day(day).capitalize()).classes(
-                "font-semibold text-gray-800"
-            )
-            if day == today:
-                ui.label(format_day(day)).classes("text-xs text-gray-500")
-            else:
-                ui.link("Volver a hoy", "/review").classes("text-xs")
-        next_button = ui.button(
-            icon="chevron_right",
-            on_click=lambda: ui.navigate.to(f"/review?day={day + timedelta(days=1)}"),
-        ).props("flat round color=primary")
-        if day >= today:
-            next_button.disable()
+    with ui.card().classes("w-full p-1"):
+        with ui.row().classes("w-full items-center justify-between no-wrap"):
+            ui.button(
+                icon="chevron_left",
+                on_click=lambda: ui.navigate.to(f"/review?day={day - timedelta(days=1)}"),
+            ).props("flat round color=primary aria-label='Día anterior'")
+            with ui.column().classes("items-center gap-0"):
+                ui.label("Hoy" if day == today else format_day(day).capitalize()).classes(
+                    "font-semibold"
+                )
+                if day == today:
+                    ui.label(format_day(day)).classes("text-xs text-muted")
+                else:
+                    ui.link("Volver a hoy", "/review").classes("text-xs text-primary")
+            next_button = ui.button(
+                icon="chevron_right",
+                on_click=lambda: ui.navigate.to(f"/review?day={day + timedelta(days=1)}"),
+            ).props("flat round color=primary aria-label='Día siguiente'")
+            if day >= today:
+                next_button.disable()
 
 
-def _render_check_card(check: dict, can_edit: bool):
-    with ui.card().classes("w-full p-3 gap-2"):
+def _render_check_card(check: dict, can_edit: bool, refresh):
+    with ui.card().classes("w-full p-4 gap-3"):
         with ui.row().classes("w-full items-start gap-2 no-wrap"):
-            with ui.column().classes("gap-0 flex-1"):
-                ui.label(check["name"]).classes("font-medium text-gray-800")
+            with ui.column().classes("gap-0 flex-1 min-w-0"):
+                ui.label(check["name"]).classes("font-medium")
                 if check["description"]:
-                    ui.label(check["description"]).classes("text-xs text-gray-500")
+                    ui.label(check["description"]).classes("text-xs text-muted")
             if check["rating"] is None:
-                ui.badge("Sin evaluar", color="grey-5").classes("text-xs")
+                pill("Sin evaluar")
+            else:
+                pill("Evaluada", "success", icon="check")
 
         if check["done_by"]:
-            ui.label(
-                f"Marcada como hecha por {check['done_by']} a las {check['done_time']}"
-            ).classes("text-xs text-green-700")
+            with ui.row().classes("items-center gap-1 -mt-1"):
+                ui.icon("check_circle", size="16px").classes("text-positive")
+                ui.label(
+                    f"Marcada como hecha por {check['done_by']} a las {check['done_time']}"
+                ).classes("text-xs text-green-800")
         else:
-            ui.label("No se marcó como hecha").classes("text-xs text-gray-500")
+            ui.label("No se marcó como hecha").classes("text-xs text-muted -mt-1")
 
         if check["photo_url"]:
             photo_view(check["photo_url"])
             ui.label(f"Foto de {check['photo_by']} a las {check['photo_time']}").classes(
-                "text-xs text-gray-500"
+                "text-xs text-muted -mt-1"
             )
         elif check["kind"] == KIND_PHOTO:
             _photo_placeholder("Aún no hay foto")
@@ -177,7 +193,7 @@ def _render_check_card(check: dict, can_edit: bool):
                     return
                 await run.io_bound(submit_photo, check_id, manager_id, image_bytes)
                 show_success("Foto guardada")
-                ui.run_javascript("window.location.reload()")
+                refresh()
 
             if check["photo_url"]:
                 camera_button("Cambiar foto", on_photo, props="outline color=primary").classes(
@@ -186,45 +202,45 @@ def _render_check_card(check: dict, can_edit: bool):
             else:
                 camera_button("Tomar foto de inspección", on_photo).classes("w-full")
 
-        _render_review(check, can_edit)
+        _render_review(check, can_edit, refresh)
 
 
 def _photo_placeholder(text: str):
     with ui.element("div").classes(
-        "w-full h-24 rounded bg-gray-100 flex items-center justify-center gap-2 text-gray-400"
+        "w-full h-24 rounded-xl bg-gray-100 flex items-center justify-center gap-2 text-gray-400"
     ):
         ui.icon("no_photography", size="24px")
         ui.label(text).classes("text-sm")
 
 
-def _render_review(check: dict, can_edit: bool):
+def _render_review(check: dict, can_edit: bool, refresh):
     if check["rating"] is not None:
-        with ui.column().classes("w-full gap-1 bg-gray-50 rounded p-2"):
+        with ui.column().classes("w-full gap-1 bg-gray-50 rounded-xl p-3"):
             with ui.row().classes("items-center gap-2"):
                 stars(check["rating"])
-                ui.label(f"por {check['reviewer']}").classes("text-xs text-gray-500")
+                ui.label(f"por {check['reviewer']}").classes("text-xs text-muted")
             ui.label(check["comment"] or "Sin comentarios").classes(
-                "text-sm text-gray-700 whitespace-pre-line"
+                "text-sm whitespace-pre-line"
             )
         if can_edit:
             form = ui.column().classes("w-full gap-2")
             form.set_visibility(False)
             with form:
-                _review_form(check)
+                _review_form(check, refresh)
             edit_button = ui.button("Editar evaluación", icon="edit").props("flat dense color=primary")
             edit_button.on_click(lambda: (form.set_visibility(True), edit_button.set_visibility(False)))
         return
 
     if not can_edit:
-        ui.label("Pendiente de evaluación").classes("text-xs text-gray-500 italic")
+        ui.label("Pendiente de evaluación").classes("text-xs text-muted italic")
     elif check["can_review"]:
-        _review_form(check)
+        _review_form(check, refresh)
     elif check["kind"] == KIND_PHOTO:
-        ui.label("Podrás evaluarla cuando llegue la foto.").classes("text-xs text-gray-500 italic")
+        ui.label("Podrás evaluarla cuando llegue la foto.").classes("text-xs text-muted italic")
 
 
-def _review_form(check: dict):
-    ui.label("¿Qué tan bien quedó?").classes("text-sm text-gray-600")
+def _review_form(check: dict, refresh):
+    ui.label("¿Qué tan bien quedó?").classes("text-sm text-muted")
     rating = star_rating(value=check["rating"] or 0, size="lg")
     comment = (
         ui.textarea("Comentario: qué estuvo mal o qué mejorar (opcional)", value=check["comment"])
@@ -243,7 +259,7 @@ def _review_form(check: dict):
             show_error(str(e))
             return
         show_success("Evaluación guardada")
-        ui.run_javascript("window.location.reload()")
+        refresh()
 
     ui.button("Guardar evaluación", icon="save", on_click=save).classes("w-full").props(
         "color=primary"

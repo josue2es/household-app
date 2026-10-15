@@ -142,6 +142,27 @@ def _password_inputs():
     return first, second
 
 
+def _color_picker(initial: str) -> dict:
+    """
+    A row of colored circles for the avatar color; the chosen one has a
+    check mark. Returns a dict whose "value" is the chosen color.
+    """
+    chosen = {"value": initial}
+    ui.label("Color").classes("text-sm text-muted -mb-1")
+
+    @ui.refreshable
+    def swatches():
+        with ui.row().classes("gap-2"):
+            for color in AVATAR_COLORS:
+                ui.button(
+                    icon="check" if color == chosen["value"] else None,
+                    on_click=lambda c=color: (chosen.update(value=c), swatches.refresh()),
+                ).props(f"round size=sm color={color} aria-label={color}")
+
+    swatches()
+    return chosen
+
+
 def _new_user_dialog(refresh_fn):
     with ui.dialog() as dialog, ui.card().classes("w-80 p-5 gap-3"):
         ui.label("Nuevo usuario").classes("text-base font-semibold")
@@ -151,11 +172,7 @@ def _new_user_dialog(refresh_fn):
             .classes("w-full")
             .props("outlined")
         )
-        color_select = (
-            ui.select(AVATAR_COLORS, value="teal", label="Color")
-            .classes("w-full")
-            .props("outlined")
-        )
+        color = _color_picker("teal")
         password_input, repeat_input = _password_inputs()
 
         with ui.row().classes("w-full gap-2 mt-1"):
@@ -172,7 +189,7 @@ def _new_user_dialog(refresh_fn):
                 try:
                     with get_db() as db:
                         create_user(db, name_input.value or "", role_select.value,
-                                    color_select.value, password_input.value or "")
+                                    color["value"], password_input.value or "")
                 except ValueError as e:
                     show_error(str(e))
                     return

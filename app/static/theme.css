@@ -1,0 +1,242 @@
+/*
+ * The app's look, shared by every page (loaded by app/theme.py).
+ *
+ * Colors used by Quasar components (buttons, inputs, color=primary, ...)
+ * are set in app/theme.py; the ones below are for our own classes.
+ */
+:root {
+  --hogar-bg: #f5f6fa;          /* page background, also the header */
+  --hogar-surface: #ffffff;     /* cards */
+  --hogar-border: #e6e8ef;
+  --hogar-text: #1d2130;
+  --hogar-muted: #6b7084;
+  --hogar-radius: 16px;
+}
+
+body {
+  background: var(--hogar-bg);
+  color: var(--hogar-text);
+  /* The phone's own font: San Francisco on iPhone, Roboto on Android */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.text-muted { color: var(--hogar-muted); }
+
+/* ---------- Header ---------- */
+
+.hogar-header {
+  background: color-mix(in srgb, var(--hogar-bg) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  color: var(--hogar-text);
+  border-bottom: 1px solid var(--hogar-border);
+  /* room for the iPhone notch when installed; 0 elsewhere */
+  padding-top: calc(10px + env(safe-area-inset-top));
+  padding-bottom: 10px;
+}
+
+/* ---------- Bottom navigation ---------- */
+
+.hogar-nav {
+  background: color-mix(in srgb, var(--hogar-surface) 92%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-top: 1px solid var(--hogar-border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.hogar-nav__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0 12px;
+  color: var(--hogar-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* The pill behind the icon (Material 3 style); filled on the current tab */
+.hogar-nav__icon {
+  position: relative;
+  width: 60px;
+  height: 32px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.hogar-nav__item--active {
+  color: var(--q-primary);
+  font-weight: 600;
+}
+
+.hogar-nav__item--active .hogar-nav__icon {
+  background: color-mix(in srgb, var(--q-primary) 14%, transparent);
+}
+
+.hogar-nav__badge {
+  position: absolute;
+  top: -4px;
+  right: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  border: 2px solid var(--hogar-surface);
+  box-sizing: content-box;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* ---------- Cards, buttons and inputs ---------- */
+
+.q-card {
+  border-radius: var(--hogar-radius);
+  border: 1px solid var(--hogar-border);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.q-dialog .q-card {
+  border: 0;
+  border-radius: 24px;
+}
+
+.q-btn {
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.q-btn:not(.q-btn--round):not(.q-btn--fab) {
+  border-radius: 12px;
+}
+
+.q-btn--fab {
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--q-primary) 40%, transparent);
+}
+
+.q-field--outlined .q-field__control {
+  border-radius: 12px;
+}
+
+.q-field--outlined:not(.q-field--highlighted) .q-field__control:before {
+  border-color: var(--hogar-border);
+}
+
+.q-field--outlined .q-field__control {
+  background: var(--hogar-surface);
+}
+
+/* ---------- Lists inside a card: rows with a divider between them ---------- */
+
+.hogar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  min-height: 60px;
+}
+
+.hogar-row + .hogar-row {
+  border-top: 1px solid var(--hogar-border);
+}
+
+/* An expansion whose rows go edge to edge, like the list above */
+.hogar-flush .q-expansion-item__content {
+  padding: 0;
+  gap: 0;
+}
+
+.hogar-flush .q-expansion-item__content .hogar-row:first-child {
+  border-top: 1px solid var(--hogar-border);
+}
+
+.hogar-row--tappable {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.hogar-row--tappable:active {
+  background: color-mix(in srgb, var(--q-primary) 6%, transparent);
+}
+
+/* ---------- A highlighted card (selected login tile, new rating) ---------- */
+
+.hogar-highlight {
+  border-color: var(--q-primary);
+  box-shadow: 0 0 0 1px var(--q-primary);
+  background: color-mix(in srgb, var(--q-primary) 8%, var(--hogar-surface));
+}
+
+/* ---------- Small labels ("Diario", "Atrasado", ...) ---------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.pill-neutral { background: #eef0f5; color: #4b5064; }
+.pill-info    { background: #e0e7ff; color: #3730a3; }
+.pill-success { background: #dcfce7; color: #166534; }
+.pill-warning { background: #fef3c7; color: #92400e; }
+.pill-danger  { background: #fee2e2; color: #991b1b; }
+
+/* ---------- Section titles ---------- */
+
+.hogar-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hogar-muted);
+}
+
+/* ---------- "Deshacer" snackbar (ui_helpers.undo_snackbar) ---------- */
+
+.hogar-snackbar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  /* above the bottom nav */
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  max-width: 424px;
+  margin: 0 auto;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 14px;
+  background: #1f2333;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  animation: hogar-snackbar-in 0.2s ease-out;
+}
+
+@keyframes hogar-snackbar-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

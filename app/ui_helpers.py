@@ -3,16 +3,19 @@ Shared UI helpers.
 
 Every page calls `mobile_layout()` to wrap itself in the standard
 mobile shell (header on top, content in the middle, nav on bottom).
+The look itself (colors, rounded cards, ...) is in theme.py and
+static/theme.css.
 """
 import logging
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Callable
 
-from nicegui import ui
+from nicegui import app, context, ui
 from app import auth
 from app.database import get_db
-from app.models import ROLE_ADMIN, ROLE_MANAGER, ROLE_HOUSEKEEPER
+from app.models import ROLE_ADMIN, ROLE_MANAGER, ROLE_HOUSEKEEPER, ROLE_LABELS
 from app.services.task_service import LOCAL_TZ
 from app.services.check_service import (
     local_today,
@@ -51,7 +54,7 @@ MONTH_NAMES = ["ene", "feb", "mar", "abr", "may", "jun",
 
 
 @contextmanager
-def mobile_layout(title: str, active_tab: str = "tasks"):
+def mobile_layout(title: str, active_tab: str = "tasks", subtitle: str = ""):
     """
     Context manager that renders the standard mobile shell.
 
@@ -61,37 +64,63 @@ def mobile_layout(title: str, active_tab: str = "tasks"):
 
     active_tab: a key of NAV_ITEMS — highlights the corresponding nav item.
     The nav shows the tabs of the logged-in user's role (NAV_BY_ROLE).
+    subtitle: optional small line under the title (e.g. today's date).
     """
     user = auth.current_user() or {}
     role = user.get("role", ROLE_HOUSEKEEPER)
 
-    # Page-wide style: gray background, no scrollbar shift
-    ui.query("body").style("background-color: #f3f4f6;")
     ui.query(".nicegui-content").classes("p-0 gap-0")
 
-    # --- Top bar ---
-    with ui.header().classes(
-        f"bg-primary text-white items-center justify-between px-4 py-3 shadow-md"
-    ):
-        ui.label(title).classes("text-lg font-semibold")
-        with ui.row().classes("items-center gap-2"):
-            user_name = user.get("name") or "?"
-            color = user.get("avatar_color") or "blue"
-            with ui.avatar(color=color, size="sm"):
-                ui.label(user_name[:1].upper()).classes("text-white text-sm")
-            ui.button(icon="logout", on_click=_handle_logout).props("flat round dense color=white")
+    # --- Top bar: page title, and the user's avatar with the account menu ---
+    with ui.header().classes("hogar-header items-center justify-between px-4 no-wrap"):
+        with ui.column().classes("gap-0 min-w-0"):
+            ui.label(title).classes("text-xl font-bold leading-tight truncate")
+            if subtitle:
+                ui.label(subtitle).classes("text-xs text-muted")
+        _account_menu(user)
 
     # --- Body ---
-    with ui.column().classes(f"w-full {MAX_WIDTH} mx-auto p-4 gap-3 pb-24"):
+    with ui.column().classes(f"w-full {MAX_WIDTH} mx-auto p-4 gap-3 pb-28"):
         yield  # caller's content goes here
 
     # --- Bottom navigation ---
-    badges = _nav_badges(role)
-    with ui.footer().classes("bg-white border-t border-gray-200 p-0"):
-        with ui.row().classes("w-full justify-around items-center py-2 no-wrap"):
-            for key in NAV_BY_ROLE.get(role, []):
-                icon, label, target = NAV_ITEMS[key]
-                _nav_button(icon, label, target, key == active_tab, badges.get(key, 0))
+    with ui.footer().classes("hogar-nav p-0"):
+        @ui.refreshable
+        def nav():
+            badges = _nav_badges(role)
+            with ui.row().classes(f"w-full {MAX_WIDTH} mx-auto items-stretch gap-0 no-wrap"):
+                for key in NAV_BY_ROLE.get(role, []):
+                    icon, label, target = NAV_ITEMS[key]
+                    _nav_button(icon, label, target, key == active_tab, badges.get(key, 0))
+
+        nav()
+    app.storage.client["refresh_nav"] = nav.refresh
+
+
+def refresh_nav():
+    """Update the counters on the bottom nav, e.g. after a review is saved."""
+    refresh = app.storage.client.get("refresh_nav")
+    if refresh is not None:
+        refresh()
+
+
+def _account_menu(user: dict):
+    """
+    The user's avatar; tapping it opens a menu with their name, role and
+    "Cerrar sesión". Logging out takes two taps, so it can't happen by accident.
+    """
+    name = user.get("name") or "?"
+    with ui.button().props("flat round dense aria-label='Cuenta'"):
+        with ui.avatar(color=user.get("avatar_color") or "blue", size="36px"):
+            ui.label(name[:1].upper()).classes("text-white text-base font-semibold")
+        with ui.menu().props("anchor='bottom right' self='top right'").classes("rounded-xl"):
+            with ui.column().classes("gap-0 px-4 pt-3 pb-2"):
+                ui.label(name).classes("font-semibold")
+                ui.label(ROLE_LABELS.get(user.get("role"), "")).classes("text-xs text-muted")
+            ui.separator()
+            with ui.menu_item(on_click=_handle_logout).classes("gap-3 text-negative"):
+                ui.icon("logout", size="20px")
+                ui.label("Cerrar sesión")
 
 
 def _nav_badges(role: str) -> dict[str, int]:
@@ -105,15 +134,23 @@ def _nav_badges(role: str) -> dict[str, int]:
 
 
 def _nav_button(icon: str, label: str, target: str, is_active: bool, badge: int = 0):
-    """One bottom-nav item."""
-    color = "text-primary" if is_active else "text-gray-500"
-    with ui.column().classes(f"items-center cursor-pointer {color} flex-1 gap-0 py-1").on(
-        "click", lambda: ui.navigate.to(target)
-    ):
-        with ui.icon(icon, size="28px"):
+    """
+    One bottom-nav item: a plain link, so the browser starts loading the
+    page on tap. The current tab gets a tinted pill behind its icon.
+    """
+    link = ui.element("a").props(f'href="{target}"').classes(
+        "hogar-nav__item" + (" hogar-nav__item--active" if is_active else "")
+    )
+    if is_active:
+        link.props('aria-current="page"')
+    with link:
+        with ui.element("div").classes("hogar-nav__icon"):
+            ui.icon(icon, size="24px")
             if badge:
-                ui.badge(str(badge), color="red").props("floating rounded")
-        ui.label(label).classes("text-xs")
+                # A sibling of the icon, not a child: inside the icon the
+                # number would be drawn with the icon font and not show.
+                ui.label(str(badge)).classes("hogar-nav__badge")
+        ui.label(label)
 
 
 def _handle_logout():
@@ -127,6 +164,76 @@ def show_error(msg: str):
 
 def show_success(msg: str):
     ui.notify(msg, type="positive", position="top")
+
+
+def undo_snackbar(message: str, on_undo: Callable[[], None], seconds: float = 6) -> None:
+    """
+    A dark bar above the bottom nav with a "Deshacer" button, shown for a few
+    seconds after an action that's easy to do by mistake (completing a task,
+    marking an item as bought). A new one replaces the previous one.
+
+    It's added to the page layout, not to the current container, so it
+    survives the page content being refreshed.
+    """
+    previous = app.storage.client.get("snackbar")
+    if previous is not None and not previous.is_deleted:
+        previous.delete()
+
+    with context.client.layout:
+        with ui.element("div").classes("hogar-snackbar").props('role="status"') as bar:
+            ui.label(message).classes("flex-1 min-w-0")
+
+            def undo():
+                bar.delete()
+                on_undo()
+
+            ui.button("Deshacer", on_click=undo).props("flat dense color=amber-4 padding='6px 12px'")
+
+        def hide():
+            if not bar.is_deleted:
+                bar.delete()
+
+        ui.timer(seconds, hide, once=True)
+    app.storage.client["snackbar"] = bar
+
+
+# ---------- Building blocks ----------
+
+def section_title(text: str, count: int | None = None):
+    """An uppercase title above a group of cards, with an optional count."""
+    with ui.element("div").classes("hogar-section"):
+        ui.label(text)
+        if count is not None:
+            ui.label(str(count)).classes("font-medium normal-case")
+
+
+def pill(text: str, tone: str = "neutral", icon: str | None = None):
+    """
+    A small rounded label. tone: neutral, info, success, warning or danger
+    (colors in theme.css).
+    """
+    with ui.element("span").classes(f"pill pill-{tone}"):
+        if icon:
+            ui.icon(icon, size="14px")
+        ui.label(text)
+
+
+def empty_state(icon: str, title: str, subtitle: str = "", color: str = "text-gray-300"):
+    """A friendly placeholder card for a list with nothing in it."""
+    with ui.card().classes("w-full p-6 items-center gap-1"):
+        ui.icon(icon, size="48px").classes(f"{color} mb-1")
+        ui.label(title).classes("font-medium text-center")
+        if subtitle:
+            ui.label(subtitle).classes("text-sm text-muted text-center")
+
+
+def check_circle_button(on_click: Callable[[], None], *, label: str = "Marcar como hecha"):
+    """The empty circle you tap to tick something off."""
+    return (
+        ui.button(icon="radio_button_unchecked", on_click=on_click)
+        .props("flat round color=primary size=lg padding='6px'")
+        .props(f'aria-label="{label}"')
+    )
 
 
 # ---------- Dates and times ----------
@@ -152,7 +259,7 @@ def photo_url(check_id: int, photo_path: str) -> str:
     return f"/photos/{check_id}?v={Path(photo_path).stem}"
 
 
-def photo_view(url: str, classes: str = "w-full h-48 rounded"):
+def photo_view(url: str, classes: str = "w-full h-48 rounded-xl"):
     """A photo that opens full screen when tapped."""
     with ui.dialog().props("maximized") as dialog:
         with ui.element("div").classes("w-full h-full bg-black flex items-center justify-center").on(
