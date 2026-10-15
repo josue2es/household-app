@@ -6,7 +6,7 @@
  * Served at /sw.js (see app/pwa.py) so it covers every page of the site.
  * Bump CACHE when offline.html changes, so phones fetch the new one.
  */
-const CACHE = 'hogar-offline-v1';
+const CACHE = 'hogar-offline-v2';
 const OFFLINE_URL = '/pwa/offline.html';
 
 self.addEventListener('install', (event) => {

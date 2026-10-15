@@ -10,6 +10,10 @@ Built with Python, [NiceGUI](https://nicegui.io/), and SQLite. Deployed via Dock
 
 ## Features
 
+### Logging in
+
+Tap your name, then type your password. Each phone remembers who logged in last and selects them next time, so usually only the password is needed. To log out, tap your avatar (top right) and then **Cerrar sesión**.
+
 ### Tareas (Chores)
 
 Track recurring and one-off household tasks. The dashboard shows only what is due today, divided into two sections:
@@ -17,7 +21,9 @@ Track recurring and one-off household tasks. The dashboard shows only what is du
 - **Pendientes (Hoy)** — tasks tied to a specific date or day of the week/month.
 - **Pendientes (Libre)** — flexible tasks with no fixed day; they appear every day until completed within their period.
 
-Completed tasks stay visible below the pending sections (greyed out with strikethrough) and can be reactivated with a single tap if marked by mistake.
+At the top, a card greets the user and shows how much of today's work is done (e.g. `2/6`; tasks without a fixed day are counted apart).
+
+Tap the circle to complete a task. A bar with **Deshacer** shows for a few seconds in case it was a mistake. Completed tasks are folded under **Completadas hoy** at the bottom; open it to see who did each one and when, and to reactivate one (↶).
 
 Above them, **Con foto de comprobación** lists the day's [photo tasks](#daily-photo-checks): these are completed by taking a photo instead of tapping the circle.
 
@@ -63,7 +69,7 @@ Users that existed before roles were added became admins automatically on the fi
 
 Each day, the first time a housekeeper opens the app, 4 of the day's tasks are drawn at random from those with a fixed day (`Diario`, `Semanal (día específico)`, `Días específicos`, `Mensual (día específico)`, `Una sola vez`; flexible "any day" tasks are never drawn, since they may not be planned for today):
 
-- **2 photo tasks** — the housekeeper sees them at the top of **Tareas** and completes them with **Tomar foto y completar**, which opens the phone's camera directly (no gallery, so the photo is taken on the spot). A task someone already completed that day isn't drawn as a photo task. Until it's rated she can take the photo back (↺) and retake it.
+- **2 photo tasks** — the housekeeper sees them at the top of **Tareas** and completes them with **Tomar foto y completar**, which opens the phone's camera directly (no gallery, so the photo is taken on the spot). A task someone already completed that day isn't drawn as a photo task. Until it's rated she can take the photo back (↶) and retake it.
 - **2 inspections** — only the manager sees these. They check the task in person, take a photo, and rate it. The housekeeper doesn't know which tasks they are until they are rated.
 
 Nothing is drawn on days no housekeeper opens the app, nor while no housekeeper account exists, so admins and managers never need photos on their own. If fewer than 4 tasks are scheduled for a day, fewer are drawn (photo tasks first).
@@ -96,11 +102,12 @@ Browsers only offer installation for sites served over **HTTPS** (or `localhost`
 A shared shopping list with a smart search field.
 
 - Type to search items already in the catalog (autocomplete). The catalog is sorted by how often each item has been purchased, so frequently bought items appear first.
-- If you type a name not in the catalog, a dialog asks for the category before saving it as a new item.
-- Items are grouped by category on the list.
-- Tap the circle to mark an item as purchased (increments its purchase count for future sorting).
-- Use the ⋮ menu to remove an item without marking it purchased.
-- Tap **Identificar con foto** to open the phone's camera, take a photo of a product, and let Gemini identify its name and category. A confirmation dialog lets you review/edit both before adding it to the list. Requires `GEMINI_API_KEY` to be configured; the button is disabled otherwise. If the product can't be identified, a message stays on screen with the reason and a reference code (see [Photo identification problems](#photo-identification-problems)).
+- Press **+** or the keyboard's Enter key to add the item. Items already on the list aren't added twice.
+- If you type a name not in the catalog, a dialog asks for its category: tap one and the new item is saved and added.
+- Items are grouped by category on the list, one card per category.
+- Tap the circle or the item's name to mark it as purchased (increments its purchase count for future sorting). A bar with **Deshacer** shows for a few seconds in case it was a mistake.
+- Use the ⋮ menu to remove an item without marking it purchased (also with **Deshacer**).
+- Tap the 📷 button next to the field to open the phone's camera, take a photo of a product, and let Gemini identify its name and category. A confirmation dialog lets you review/edit both before adding it to the list. Requires `GEMINI_API_KEY` to be configured; without it the button is hidden, and admins see a hint to set it up. If the product can't be identified, a message stays on screen with the reason and a reference code (see [Photo identification problems](#photo-identification-problems)).
 
 #### Categories
 
@@ -128,6 +135,7 @@ A shared shopping list with a smart search field.
 | Vision AI | Google Gemini API (`gemini-3-pro-preview`) — identifies grocery items from a photo |
 | Photos | [Pillow](https://python-pillow.org/) — shrinks the task photos before saving them |
 | Installable app | Web app manifest + service worker (`app/pwa.py`, `app/static/pwa/`) |
+| Look and feel | Colors and button defaults in `app/theme.py`, shared styles in `app/static/theme.css`, layout (header, bottom nav, building blocks) in `app/ui_helpers.py` |
 | Dependencies | [uv](https://docs.astral.sh/uv/) — declared in `pyproject.toml`, pinned in `uv.lock`; used both locally and in the Docker image |
 | Deployment | Docker + Docker Compose, or systemd services (`deploy/`) |
 

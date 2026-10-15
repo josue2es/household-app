@@ -9,7 +9,7 @@ from datetime import timedelta
 from nicegui import ui
 
 from app.database import get_db
-from app.ui_helpers import mobile_layout, photo_view, photo_url, stars, format_day
+from app.ui_helpers import mobile_layout, photo_view, photo_url, stars, format_day, pill, empty_state
 from app.services.check_service import (
     KIND_PHOTO,
     local_today,
@@ -50,39 +50,36 @@ def _build_page():
         # Shown now with a "Nuevo" badge; seen from the next visit on.
         mark_feedback_seen(db, [item["id"] for item in items if item["is_new"]])
 
-    with ui.card().classes("w-full p-4 items-center gap-1"):
-        if count:
-            ui.label(f"{avg:.1f}").classes("text-4xl font-bold text-gray-800")
+    if count:
+        with ui.card().classes("w-full p-5 items-center gap-1"):
+            ui.label(f"{avg:.1f}").classes("text-5xl font-bold")
             stars(avg, size="md")
             ui.label(f"Promedio de {count} evaluaciones en los últimos 30 días").classes(
-                "text-xs text-gray-500 text-center"
+                "text-xs text-muted text-center"
             )
-        else:
-            ui.icon("star_outline", size="40px").classes("text-gray-300")
-            ui.label("Aún no tienes evaluaciones").classes("text-gray-600")
-            ui.label("Aquí verás las estrellas y comentarios sobre tu trabajo.").classes(
-                "text-xs text-gray-400 text-center"
-            )
+    else:
+        empty_state("star_outline", "Aún no tienes evaluaciones",
+                    "Aquí verás las estrellas y comentarios sobre tu trabajo.")
 
     for item in items:
         _render_feedback_card(item)
 
 
 def _render_feedback_card(item: dict):
-    border = "border-2 border-blue-400" if item["is_new"] else ""
-    with ui.card().classes(f"w-full p-3 gap-2 {border}"):
+    highlight = "hogar-highlight" if item["is_new"] else ""
+    with ui.card().classes(f"w-full p-4 gap-2 {highlight}"):
         with ui.row().classes("w-full items-center gap-2 no-wrap"):
-            ui.label(format_day(item["day"]).capitalize()).classes("text-xs text-gray-500 flex-1")
-            ui.badge(item["kind"], color="grey-5").classes("text-xs")
+            ui.label(format_day(item["day"]).capitalize()).classes("text-xs text-muted flex-1")
+            pill(item["kind"])
             if item["is_new"]:
-                ui.badge("Nuevo", color="primary").classes("text-xs")
-        ui.label(item["name"]).classes("font-medium text-gray-800")
+                pill("Nuevo", "info")
+        ui.label(item["name"]).classes("font-medium")
         with ui.row().classes("items-center gap-2"):
             stars(item["rating"])
-            ui.label(f"por {item['reviewer']}").classes("text-xs text-gray-500")
+            ui.label(f"por {item['reviewer']}").classes("text-xs text-muted")
         if item["comment"]:
-            with ui.row().classes("w-full items-start gap-2 no-wrap bg-amber-50 rounded p-2"):
+            with ui.row().classes("w-full items-start gap-2 no-wrap bg-amber-50 rounded-xl p-3"):
                 ui.icon("chat", size="18px").classes("text-amber-700 mt-0.5")
                 ui.label(item["comment"]).classes("text-sm text-gray-800 whitespace-pre-line")
         if item["photo_url"]:
-            photo_view(item["photo_url"], classes="w-full h-40 rounded")
+            photo_view(item["photo_url"], classes="w-full h-40 rounded-xl")

@@ -19,9 +19,13 @@ from pathlib import Path
 from fastapi.responses import FileResponse
 from nicegui import app, ui
 
+from app.theme import BACKGROUND
+
 STATIC_DIR = Path(__file__).parent / "static" / "pwa"
 
-THEME_COLOR = "#5898d4"  # NiceGUI's default primary color (the header bar)
+# The phone's status bar matches the header, which has the page background
+# color. Keep in sync with theme_color in manifest.webmanifest.
+THEME_COLOR = BACKGROUND
 
 HEAD_HTML = f"""
 <link rel="manifest" href="/manifest.webmanifest">

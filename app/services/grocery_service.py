@@ -128,7 +128,8 @@ def mark_as_purchased(db: Session, active_item_id: int) -> None:
         .filter(ActiveShoppingItem.id == active_item_id)
         .first()
     )
-    if not entry:
+    # Already bought (e.g. a double tap): don't count the purchase twice.
+    if not entry or entry.is_purchased:
         return
 
     now = datetime.utcnow()
@@ -136,6 +137,33 @@ def mark_as_purchased(db: Session, active_item_id: int) -> None:
     entry.purchased_at = now
     entry.item.purchase_count += 1
     entry.item.last_purchased_at = now
+
+
+def undo_purchase(db: Session, active_item_id: int) -> None:
+    """
+    Undo mark_as_purchased (the "Deshacer" button right after it): the item
+    goes back on the list and its purchase_count goes back down.
+
+    last_purchased_at keeps the new time; it only breaks ties when sorting
+    suggestions. If the item was added to the list again in the meantime,
+    the old entry stays bought, so the item isn't listed twice.
+    """
+    entry = db.get(ActiveShoppingItem, active_item_id)
+    if entry is None or not entry.is_purchased:
+        return
+
+    entry.item.purchase_count = max(0, entry.item.purchase_count - 1)
+    already_listed = (
+        db.query(ActiveShoppingItem)
+        .filter(
+            ActiveShoppingItem.item_id == entry.item_id,
+            ActiveShoppingItem.is_purchased.is_(False),
+        )
+        .first()
+    )
+    if already_listed is None:
+        entry.is_purchased = False
+        entry.purchased_at = None
 
 
 def remove_from_active_list(db: Session, active_item_id: int) -> None:

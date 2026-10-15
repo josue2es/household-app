@@ -11,13 +11,15 @@ import secrets
 from nicegui import ui
 from app import auth
 from app.database import get_db
-from app.ui_helpers import mobile_layout, show_success, show_error
+from app.models import ROLE_ADMIN
+from app.ui_helpers import mobile_layout, show_success, show_error, empty_state, undo_snackbar
 from app.services.grocery_service import (
     CATEGORIES,
     get_active_list,
     search_suggestions,
     add_to_active_list,
     mark_as_purchased,
+    undo_purchase,
     remove_from_active_list,
 )
 from app.services.vision_service import (
@@ -31,72 +33,114 @@ log = logging.getLogger("household.photo")
 # Largest photo the browser will upload (phone photos are usually 2-8 MB).
 MAX_PHOTO_BYTES = 15_000_000
 
+# An icon for each category (Material Icons names); others get "category".
+CATEGORY_ICONS = {
+    "Despensa": "inventory_2",
+    "Frescos": "eco",
+    "Carnes y Lácteos": "egg",
+    "Panadería": "bakery_dining",
+    "Cuidado Personal": "soap",
+    "Limpieza del Hogar": "cleaning_services",
+    "Mascotas": "pets",
+    "Otros": "category",
+}
+
 
 def render():
+    user = auth.current_user() or {}
     with mobile_layout("Lista de compras", active_tab="groceries"):
-        container = ui.column().classes("w-full gap-3")
+        # What the add field needs to know, kept up to date as items are added:
+        #   categories: catalog item name (lowercase) → its category
+        #   on_list:    names (lowercase) already on the shopping list
+        catalog = {"categories": {}, "on_list": set()}
 
-        def refresh():
-            container.clear()
-            with container:
-                _render_smart_add(refresh)
-                _render_active_list(refresh)
+        # Defined inside render(), not at module level: a module-level
+        # refreshable would refresh the page of everyone who has it open.
+        @ui.refreshable
+        def shopping_list():
+            _render_active_list(catalog, shopping_list.refresh)
 
-        refresh()
+        def after_add():
+            _load_catalog(catalog, name_input)
+            shopping_list.refresh()
+
+        name_input = _render_smart_add(catalog, after_add, user.get("role") == ROLE_ADMIN)
+        _load_catalog(catalog, name_input)
+        shopping_list()
 
 
-def _render_smart_add(refresh_fn):
-    with ui.card().classes("w-full p-3 gap-3"):
-        with get_db() as db:
-            all_items = search_suggestions(db, query="", limit=None)
-            # Extract plain strings inside the session before it closes.
-            all_names = [item.name for item in all_items]
-            known = {item.name.lower() for item in all_items}
-            known_categories = {item.name.lower(): item.category for item in all_items}
+def _load_catalog(catalog: dict, name_input):
+    """Read the catalog for the add field's suggestions and category lookup."""
+    with get_db() as db:
+        all_items = search_suggestions(db, query="", limit=None)
+        # Extract plain strings inside the session before it closes.
+        names = [item.name for item in all_items]
+        catalog["categories"] = {item.name.lower(): item.category for item in all_items}
+    name_input.set_autocomplete(names)
 
-        name_input = (
-            ui.input(
-                label="Agregar artículo (escribe para buscar o crear)",
-                autocomplete=all_names,
+
+def _render_smart_add(catalog: dict, on_added, is_admin: bool):
+    """The add field, with the camera and add buttons next to it. Returns the field."""
+    with ui.card().classes("w-full p-3 gap-2"):
+        with ui.row().classes("w-full items-center gap-2 no-wrap"):
+            name_input = (
+                ui.input(placeholder="Agregar artículo…")
+                .classes("flex-1")
+                .props("outlined dense clearable")
             )
-            .classes("w-full")
-            .props("outlined clearable")
-        )
+            photo_ready = _render_photo_identify(name_input, catalog, on_added)
 
-        def add_item():
-            raw = (name_input.value or "").strip()
-            if not raw:
-                show_error("Escribe o selecciona un artículo primero")
-                return
-            user_id = auth.current_user_id()
-            if user_id is None:
-                ui.navigate.to("/login")
-                return
+            def add_item():
+                raw = (name_input.value or "").strip()
+                if not raw:
+                    show_error("Escribe o selecciona un artículo primero")
+                    return
+                if raw.lower() in catalog["on_list"]:
+                    ui.notify(f"«{raw}» ya está en la lista", type="info", position="top")
+                    name_input.set_value("")
+                    return
+                user_id = auth.current_user_id()
+                if user_id is None:
+                    ui.navigate.to("/login")
+                    return
 
-            if raw.lower() in known:
-                # Existing catalog item — category already stored in DB, no need to ask.
-                _do_add(raw, None, user_id, name_input, refresh_fn)
-            else:
-                # Brand-new item — ask for category before saving.
-                _show_category_dialog(raw, user_id, name_input, refresh_fn)
+                if raw.lower() in catalog["categories"]:
+                    # Existing catalog item — category already stored in DB, no need to ask.
+                    _do_add(raw, None, user_id, name_input, on_added)
+                else:
+                    # Brand-new item — ask for category before saving.
+                    _show_category_dialog(raw, user_id, name_input, on_added)
 
-        ui.button("Agregar a la lista", icon="add", on_click=add_item).classes("w-full").props(
-            "color=primary"
-        )
+            ui.button(icon="add", on_click=add_item).props(
+                "round color=primary aria-label='Agregar a la lista'"
+            )
 
-        _render_photo_identify(name_input, known_categories, refresh_fn)
+        # The keyboard's Enter / "Ir" key adds too.
+        name_input.on("keydown.enter", add_item)
+
+        ui.label(
+            "Escribe para buscar en el catálogo, o un nombre nuevo para crearlo."
+            + (" Con 📷 puedes identificarlo con una foto." if photo_ready else "")
+        ).classes("text-xs text-muted px-1")
+        if not photo_ready and is_admin:
+            ui.label("Configura GEMINI_API_KEY para identificar artículos con foto.").classes(
+                "text-xs text-muted px-1"
+            )
+    return name_input
 
 
-def _render_photo_identify(name_input, known_categories: dict[str, str], refresh_fn):
+def _render_photo_identify(name_input, catalog: dict, on_added) -> bool:
     """
-    Button that opens the camera and identifies a product via Gemini.
+    Camera button that identifies a product via Gemini. Returns False (and
+    shows nothing) when GEMINI_API_KEY isn't set.
 
     Every outcome is reported on screen: progress while the photo uploads and
     Gemini looks at it, then either the identified product or a problem that
     stays visible until closed. Problems show their technical reason and a
     reference code that matches the server log line for that attempt.
     """
-    api_key_configured = bool(os.getenv("GEMINI_API_KEY"))
+    if not os.getenv("GEMINI_API_KEY"):
+        return False
     progress = {"notification": None}
 
     def show_progress(message: str):
@@ -138,7 +182,7 @@ def _render_photo_identify(name_input, known_categories: dict[str, str], refresh
             upload.reset()
 
         ui.notify(f"Artículo identificado: {name}", type="positive", position="top")
-        _show_photo_confirm_dialog(name, category, known_categories, name_input, refresh_fn)
+        _show_photo_confirm_dialog(name, category, catalog["categories"], name_input, on_added)
 
     def handle_rejected(e):
         """The browser refused the file before uploading it (too big, not an image, ...)."""
@@ -185,28 +229,22 @@ def _render_photo_identify(name_input, known_categories: dict[str, str], refresh
         status: info.xhr ? info.xhr.status : 0,
         response: info.xhr ? String(info.xhr.responseText || '').slice(0, 200) : ''})""")
 
-    photo_btn = ui.button("Identificar con foto", icon="photo_camera").classes("w-full").props(
-        "outline color=primary"
+    photo_btn = ui.button(icon="photo_camera").props(
+        "round outline color=primary aria-label='Identificar con foto'"
     )
-
-    if api_key_configured:
-        photo_btn.on(
-            "click",
-            js_handler=f"""() => {{
-                const up = document.getElementById('c{upload.id}');
-                const input = up && up.querySelector('input[type=file]');
-                if (input) {{
-                    input.setAttribute('accept', 'image/*');
-                    input.setAttribute('capture', 'environment');
-                    input.click();
-                }}
-            }}""",
-        )
-    else:
-        photo_btn.disable()
-        ui.label("Configura GEMINI_API_KEY para activar esta función").classes(
-            "text-xs text-gray-400"
-        )
+    photo_btn.on(
+        "click",
+        js_handler=f"""() => {{
+            const up = document.getElementById('c{upload.id}');
+            const input = up && up.querySelector('input[type=file]');
+            if (input) {{
+                input.setAttribute('accept', 'image/*');
+                input.setAttribute('capture', 'environment');
+                input.click();
+            }}
+        }}""",
+    )
+    return True
 
 
 def _notify_problem(message: str, caption: str, type: str = "negative"):
@@ -215,7 +253,7 @@ def _notify_problem(message: str, caption: str, type: str = "negative"):
               timeout=0, actions=[{"label": "Cerrar", "color": "white"}])
 
 
-def _do_add(item_name: str, category: str | None, user_id: int, name_input, refresh_fn):
+def _do_add(item_name: str, category: str | None, user_id: int, name_input, on_added):
     """Persist the item and refresh. Category is ignored for existing catalog items."""
     try:
         with get_db() as db:
@@ -225,38 +263,40 @@ def _do_add(item_name: str, category: str | None, user_id: int, name_input, refr
                 user_id=user_id,
                 category=category or "Otros",
             )
-        show_success(f"'{item_name}' agregado")
+        show_success(f"«{item_name}» agregado")
         name_input.set_value("")
-        refresh_fn()
+        on_added()
     except ValueError as e:
         show_error(str(e))
 
 
-def _show_category_dialog(item_name: str, user_id: int, name_input, refresh_fn):
-    """Modal that appears only when the user is adding an item not yet in the catalog."""
+def _show_category_dialog(item_name: str, user_id: int, name_input, on_added):
+    """
+    Modal that appears only when the user is adding an item not yet in the
+    catalog. Tapping a category adds the item right away.
+    """
     with ui.dialog() as dialog, ui.card().classes("w-80 p-5 gap-3"):
         ui.label("Artículo nuevo").classes("text-base font-semibold")
         ui.label(
-            f'"{item_name}" no está en el catálogo. ¿A qué categoría pertenece?'
-        ).classes("text-sm text-gray-500")
+            f"«{item_name}» no está en el catálogo. ¿A qué categoría pertenece?"
+        ).classes("text-sm text-muted")
 
-        cat_select = (
-            ui.select(CATEGORIES, value=CATEGORIES[0], label="Categoría")
-            .classes("w-full")
-            .props("outlined")
-        )
+        def choose(category: str):
+            dialog.close()
+            _do_add(item_name, category, user_id, name_input, on_added)
 
-        with ui.row().classes("w-full gap-2 mt-1"):
-            ui.button("Cancelar", on_click=dialog.close).classes("flex-1").props(
-                "outline color=grey"
-            )
+        with ui.element("div").classes("grid grid-cols-2 gap-2 w-full"):
+            for category in CATEGORIES:
+                with ui.button(on_click=lambda c=category: choose(c)).props(
+                    "outline color=grey-8 align=left padding='8px 10px'"
+                ).classes("w-full"):
+                    with ui.row().classes("items-center gap-2 no-wrap"):
+                        ui.icon(CATEGORY_ICONS.get(category, "category"), size="20px").classes(
+                            "text-primary"
+                        )
+                        ui.label(category).classes("text-sm text-left leading-tight")
 
-            def confirm():
-                chosen = cat_select.value
-                dialog.close()
-                _do_add(item_name, chosen, user_id, name_input, refresh_fn)
-
-            ui.button("Agregar", on_click=confirm).classes("flex-1").props("color=primary")
+        ui.button("Cancelar", on_click=dialog.close).classes("w-full").props("flat color=grey-7")
 
     dialog.open()
 
@@ -266,7 +306,7 @@ def _show_photo_confirm_dialog(
     category: str,
     known_categories: dict[str, str],
     name_input,
-    refresh_fn,
+    on_added,
 ):
     """Modal shown after Gemini identifies a product from a photo."""
     # If the item already exists in the catalog, its stored category wins
@@ -278,7 +318,7 @@ def _show_photo_confirm_dialog(
     with ui.dialog() as dialog, ui.card().classes("w-80 p-5 gap-3"):
         ui.label("Producto identificado").classes("text-base font-semibold")
         ui.label("Revisa el nombre y la categoría antes de agregar.").classes(
-            "text-sm text-gray-500"
+            "text-sm text-muted"
         )
 
         name_field = (
@@ -292,7 +332,7 @@ def _show_photo_confirm_dialog(
 
         with ui.row().classes("w-full gap-2 mt-1"):
             ui.button("Cancelar", on_click=dialog.close).classes("flex-1").props(
-                "outline color=grey"
+                "outline color=grey-7"
             )
 
             def confirm():
@@ -306,70 +346,96 @@ def _show_photo_confirm_dialog(
                     ui.navigate.to("/login")
                     return
                 dialog.close()
-                _do_add(chosen_name, cat_select.value, user_id, name_input, refresh_fn)
+                _do_add(chosen_name, cat_select.value, user_id, name_input, on_added)
 
             ui.button("Agregar", on_click=confirm).classes("flex-1").props("color=primary")
 
     dialog.open()
 
 
-def _render_active_list(refresh_fn):
-    """Pending items grouped by category."""
+def _category_order(category: str) -> tuple[int, str]:
+    """Categories in the CATEGORIES order (roughly a walk through the store), unknown ones last."""
+    position = CATEGORIES.index(category) if category in CATEGORIES else len(CATEGORIES)
+    return position, category
+
+
+def _render_active_list(catalog: dict, refresh):
+    """Pending items grouped by category, one card per category."""
     with get_db() as db:
         active = get_active_list(db)
         active_data = [
-            (entry.id, entry.item.name, entry.item.category, entry.added_by.name)
+            (entry.id, entry.item.name, entry.item.category, entry.added_by.name, entry.added_by_user_id)
             for entry in active
         ]
+    catalog["on_list"] = {name.lower() for _, name, _, _, _ in active_data}
 
     if not active_data:
-        with ui.card().classes("w-full p-6 items-center"):
-            ui.icon("shopping_basket", size="48px").classes("text-gray-300 mb-2")
-            ui.label("Tu lista está vacía").classes("text-gray-600")
-            ui.label("Agrega un artículo arriba para comenzar").classes("text-xs text-gray-400")
+        empty_state("shopping_basket", "Tu lista está vacía", "Agrega un artículo arriba para comenzar")
         return
 
+    count = len(active_data)
+    ui.label(f"{count} artículo{'s' if count != 1 else ''} por comprar").classes(
+        "text-sm text-muted px-1 mt-1"
+    )
+
     by_cat: dict[str, list] = {}
-    for entry_id, name, category, added_by in active_data:
-        by_cat.setdefault(category, []).append((entry_id, name, added_by))
+    for entry_id, name, category, added_by, added_by_id in active_data:
+        by_cat.setdefault(category, []).append((entry_id, name, added_by, added_by_id))
 
-    for category in sorted(by_cat.keys()):
-        ui.label(category).classes(
-            "text-sm font-semibold text-gray-500 uppercase tracking-wide mt-2"
-        )
-        for entry_id, name, added_by in by_cat[category]:
-            _render_grocery_card(entry_id, name, added_by, refresh_fn)
-
-
-def _render_grocery_card(entry_id: int, name: str, added_by: str, refresh_fn):
-    with ui.card().classes("w-full p-3"):
-        with ui.row().classes("w-full items-center justify-between no-wrap"):
-            with ui.row().classes("items-center gap-3 flex-1"):
-                ui.button(icon="radio_button_unchecked").props(
-                    "flat round size=md color=primary"
-                ).on_click(lambda eid=entry_id: _on_purchased(eid, refresh_fn))
-
-                with ui.column().classes("gap-0 flex-1"):
-                    ui.label(name).classes("font-medium text-gray-800")
-                    ui.label(f"agregado por {added_by}").classes("text-xs text-gray-500")
-
-            with ui.button(icon="more_vert").props("flat round dense color=grey"):
-                with ui.menu():
-                    ui.menu_item(
-                        "Eliminar (no comprado)",
-                        on_click=lambda eid=entry_id: _on_removed(eid, refresh_fn),
-                    ).props("dense")
+    for category in sorted(by_cat.keys(), key=_category_order):
+        with ui.card().classes("w-full p-0 gap-0 overflow-hidden"):
+            with ui.row().classes("w-full items-center gap-2 px-4 pt-3 pb-1 no-wrap"):
+                ui.icon(CATEGORY_ICONS.get(category, "category"), size="18px").classes("text-primary")
+                ui.label(category).classes("text-sm font-semibold flex-1")
+                ui.label(str(len(by_cat[category]))).classes("text-xs text-muted")
+            for entry_id, name, added_by, added_by_id in by_cat[category]:
+                _render_grocery_row(entry_id, name, added_by, added_by_id, refresh)
 
 
-def _on_purchased(entry_id: int, refresh_fn):
+def _render_grocery_row(entry_id: int, name: str, added_by: str, added_by_id: int, refresh):
+    """One item: tap the circle or the name to mark it as bought."""
+    with ui.element("div").classes("hogar-row"):
+        ui.button(
+            icon="radio_button_unchecked",
+            on_click=lambda: _on_purchased(entry_id, name, refresh),
+        ).props("flat round color=primary size=lg padding='6px' aria-label='Marcar como comprado'")
+
+        with ui.column().classes("gap-0 flex-1 min-w-0 cursor-pointer").on(
+            "click", lambda: _on_purchased(entry_id, name, refresh)
+        ):
+            ui.label(name).classes("font-medium")
+            ui.label(f"agregado por {added_by}").classes("text-xs text-muted")
+
+        with ui.button(icon="more_vert").props("flat round dense color=grey-7"):
+            with ui.menu():
+                ui.menu_item(
+                    "Quitar de la lista (no se compró)",
+                    on_click=lambda: _on_removed(entry_id, name, added_by_id, refresh),
+                ).props("dense")
+
+
+def _on_purchased(entry_id: int, name: str, refresh):
     with get_db() as db:
         mark_as_purchased(db, entry_id)
-    show_success("¡Marcado como comprado!")
-    refresh_fn()
+    refresh()
+    undo_snackbar(f"«{name}» comprado", lambda: _undo_purchase(entry_id, refresh))
 
 
-def _on_removed(entry_id: int, refresh_fn):
+def _undo_purchase(entry_id: int, refresh):
+    with get_db() as db:
+        undo_purchase(db, entry_id)
+    refresh()
+
+
+def _on_removed(entry_id: int, name: str, added_by_id: int, refresh):
     with get_db() as db:
         remove_from_active_list(db, entry_id)
-    show_success("Eliminado")
-    refresh_fn()
+    refresh()
+
+    def put_back():
+        # Re-adding by name finds the catalog item, so its category is kept.
+        with get_db() as db:
+            add_to_active_list(db, item_name=name, user_id=added_by_id)
+        refresh()
+
+    undo_snackbar(f"«{name}» quitado de la lista", put_back)
